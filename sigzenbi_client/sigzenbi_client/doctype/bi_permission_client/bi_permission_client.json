@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-05-05 14:26:33.323410",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "permission"
+ ],
+ "fields": [
+  {
+   "fieldname": "permission",
+   "fieldtype": "Link",
+   "label": "Permission",
+   "options": "SigzenBI Permission Client"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-05-05 14:27:10.526814",
+ "modified_by": "Administrator",
+ "module": "SigzenBI Client",
+ "name": "BI Permission Client",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
