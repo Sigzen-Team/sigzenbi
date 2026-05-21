@@ -1,4 +1,4 @@
-# Copyright (c) 2025, Kalp Dalsania and contributors
+# Copyright (c) 2026, Parin Dave and contributors
 # For license information, please see license.txt
 
 import frappe   
@@ -14,7 +14,11 @@ def fetch_and_update_permissions():
     try:
         # Get client_name from SigzenBI Subscription Settings
         client_name = frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name')
+        if client_name:
+            client_name = client_name.strip()
         base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
+        if base_url and not base_url.endswith("/"):
+            base_url += "/"
         if not client_name:
             return {
                 "status": "error",

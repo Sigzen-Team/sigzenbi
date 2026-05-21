@@ -64,8 +64,7 @@
    "in_list_view": 1,
    "in_preview": 1,
    "in_standard_filter": 1,
-   "label": "Client Name",
-   "read_only": 1
+   "label": "Client Name"
   },
   {
    "fieldname": "licence_no",
@@ -197,7 +196,7 @@
    "read_only": 1
   },
   {
-   "default": "http://127.0.0.1:8000/",
+   "default": "http://172.22.206.232:8004/",
    "fieldname": "sigzenbi_link_section",
    "fieldtype": "Section Break",
    "label": "SigzenBI Link"
@@ -215,15 +214,14 @@
   {
    "fieldname": "sigzenbi_erp_link",
    "fieldtype": "Data",
-   "label": "SigzenBI ERP Link",
-   "read_only": 1
+   "label": "SigzenBI ERP Link"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-05-21 17:44:20.483298",
+ "modified": "2026-05-05 11:06:15.318747",
  "modified_by": "Administrator",
  "module": "SigzenBI Client",
  "name": "SigzenBI Subscription Settings",

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, Kalp Dalsania and Contributors
+# Copyright (c) 2026, Parin Dave and Contributors
 # See license.txt
 
 # import frappe

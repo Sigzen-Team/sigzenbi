@@ -1,9 +1,9 @@
-// Copyright (c) 2025, Kalp Dalsania and contributors
+// Copyright (c) 2026, Parin Dave and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on("SigzenBI Subscription Plan", {
     refresh(frm) {
-        frm.add_custom_button(__('Fetch Subscription Details'), async function() {
+        frm.add_custom_button(__('Fetch Subscription Details'), async function () {
             if (!frm.doc.client_name) {
                 frappe.msgprint(__('Please set Client Name first.'));
                 return;
@@ -11,9 +11,9 @@ frappe.ui.form.on("SigzenBI Subscription Plan", {
 
             console.log("Client name being sent:", frm.doc.client_name);
             const csrfToken = frappe.csrf_token;
-            const API_URL = "http://127.0.0.1:8000/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details";
-            const API_KEY = "3b87f054c9b1a06";
-            const API_SECRET = "8822a4b0438e433";
+            const API_URL = "http://172.22.206.232:8003/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details";
+            const API_KEY = "2444eb73c70d250";
+            const API_SECRET = "892b6a6f7860ceb";
             try {
                 const response = await fetch(API_URL, {
                     method: "POST",
