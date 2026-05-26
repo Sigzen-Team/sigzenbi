@@ -37,7 +37,7 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central databasereg.html: {e}", "databasereg")
+            frappe.log_error(title="databasereg", message=f"Error reading local central databasereg.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
@@ -48,16 +48,43 @@ def get_context(context):
                 if response.status_code == 200:
                     central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central databasereg.html: {e}", "databasereg")
+                frappe.log_error(title="databasereg", message=f"Error fetching central databasereg.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load database connectivity form.</h1>"
     else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            browser_base_url = base_url
+            if "192.168.1.12" in base_url:
+                browser_base_url = base_url.replace("192.168.1.12", "127.0.0.1")
+            central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{browser_base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
+            
+            # Rewrite hardcoded API endpoints to use Jinja tags
+            central_html = central_html.replace(
+                "'/api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials'",
+                "'{{ api_get_database_credentials_url }}'"
+            )
+            
+            # Rewrite redirect to /thanks to /thankyou for the client app
+            central_html = central_html.replace("window.location.href = '/thanks'", "window.location.href = '/thankyou'")
+            central_html = central_html.replace('window.location.href = "/thanks"', 'window.location.href = "/thankyou"')
+            central_html = central_html.replace("'/thanks'", "'/thankyou'")
+            central_html = central_html.replace('"/thanks"', '"/thankyou"')
+            central_html = central_html.replace("window.location.href = '/register/thanks'", "window.location.href = '/thankyou'")
+            central_html = central_html.replace('window.location.href = "/register/thanks"', 'window.location.href = "/thankyou"')
+            central_html = central_html.replace("'/register/thanks'", "'/thankyou'")
+            central_html = central_html.replace('"/register/thanks"', '"/thankyou"')
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central databasereg template: {e}", "databasereg")
+            frappe.log_error(title="databasereg", message=f"Error rendering central databasereg template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context
@@ -107,6 +134,13 @@ def parse_response(response):
         if not error_msg:
             error_msg = "An unknown error occurred on the central server."
             
+        # Clean up ugly technical errors for the user interface
+        if isinstance(error_msg, str):
+            if "Max retries exceeded" in error_msg or "HTTPConnectionPool" in error_msg or "ConnectTimeoutError" in error_msg:
+                error_msg = ""
+            elif error_msg.startswith("Error Log") or "frappe.exceptions" in error_msg or "Traceback" in error_msg:
+                error_msg = ""
+            
         return {"status": "error", "message": error_msg}
         
     if "message" in res_json:
@@ -130,5 +164,8 @@ def get_database_credentials(**kwargs):
         parsed = parse_response(response)
         return parsed
     except Exception as e:
-        frappe.log_error(f"Get Database Credentials Proxy Error: {e}", "Database Proxy Error")
-        return {"status": "error", "message": str(e)}
+        frappe.log_error(title="Database Proxy Error", message=f"Get Database Credentials Proxy Error: {e}")
+        error_str = str(e)
+        if "Max retries exceeded" in error_str or "HTTPConnectionPool" in error_str or "ConnectTimeoutError" in error_str:
+            error_str = ""
+        return {"status": "error", "message": error_str}

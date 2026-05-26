@@ -44,5 +44,22 @@ def get_context(context):
             except Exception as e:
                 frappe.log_error(f"Error fetching central db_permission.html: {e}", "db_permission_proxy")
                 
-    context.central_html = central_html or "<h1>Could not load database permission page.</h1>"
+    if not central_html:
+        context.central_html = "<h1>Could not load database permission page.</h1>"
+    else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            central_html = central_html.replace('"/assets/', f'"{base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+
+        # Pre-render the central HTML template with context so Jinja tags are executed
+        try:
+            context.central_html = frappe.render_template(central_html, context)
+        except Exception as e:
+            frappe.log_error(title="db_permission", message=f"Error rendering central db_permission template: {e}")
+            context.central_html = central_html  # fallback to raw if template rendering fails
+
     return context

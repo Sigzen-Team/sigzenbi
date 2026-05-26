@@ -27,21 +27,40 @@ def get_context(context):
     if not central_html:
         if base_url:
             try:
-                url = f"{base_url}home"
+                # www/home/homes.html is typically served at the '/home/homes' path under Frappe
+                url = f"{base_url}home/homes"
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
                     central_html = response.text
                 else:
-                    url_alt = f"{base_url}home.html"
-                    response_alt = requests.get(url_alt, timeout=10)
-                    if response_alt.status_code == 200:
-                        central_html = response_alt.text
+                    # Try alternative paths
+                    for alt in [f"{base_url}home/homes.html", f"{base_url}home", f"{base_url}home.html"]:
+                        response_alt = requests.get(alt, timeout=10)
+                        if response_alt.status_code == 200:
+                            central_html = response_alt.text
+                            break
             except Exception as e:
                 frappe.log_error(f"Error fetching central home.html via URL: {e}", "test_client_home")
                 
     if not central_html:
         context.central_html = "<h1>Could not load central page content.</h1>"
     else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            central_html = central_html.replace('"/assets/', f'"{base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+
+        # Redirect the plans button / link to our client plans page
+        central_html = central_html.replace('"/plans/plans"', '"/test_client_plans"')
+        central_html = central_html.replace("'/plans/plans'", "'/test_client_plans'")
+        central_html = central_html.replace('"/plans"', '"/test_client_plans"')
+        central_html = central_html.replace("'/plans'", "'/test_client_plans'")
+        
+        context.plans_url = "/test_client_plans"
+
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:

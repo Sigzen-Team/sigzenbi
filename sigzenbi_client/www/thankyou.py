@@ -31,7 +31,7 @@ def get_context(context):
                     if res_msg.get("exists") is True:
                         db_registered = True
         except Exception as e:
-            frappe.log_error(f"Error checking database credentials registration status: {e}", "thankyou")
+            frappe.log_error(title="thankyou", message=f"Error checking database credentials registration status: {e}")
 
     if not db_registered:
         frappe.local.flags.redirect_location = "/register/register"
@@ -41,33 +41,41 @@ def get_context(context):
 
     central_html = ""
     # Try filesystem first
-    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/thankyou.html"
+    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/register/thanks.html"
     if os.path.exists(local_path):
         try:
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central thankyou.html: {e}", "thankyou")
+            frappe.log_error(title="thankyou", message=f"Error reading local central thanks.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
         if base_url:
             try:
-                url = f"{base_url}thankyou"
-                response = requests.get(url, timeout=10)
+                url = f"{base_url}thanks"
+                response = requests.get(url, timeout=50, allow_redirects=False)
                 if response.status_code == 200:
                     central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central thankyou.html: {e}", "thankyou")
+                frappe.log_error(title="thankyou", message=f"Error fetching central thanks.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Registration Successful! Thank you.</h1>"
     else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            central_html = central_html.replace('"/assets/', f'"{base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central thankyou template: {e}", "thankyou")
+            frappe.log_error(title="thankyou", message=f"Error rendering central thankyou template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context

@@ -37,7 +37,7 @@ class SigzenBIUsers(Document):
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,
                 "user_name": self.user_name,
-                "full_name": self.full_name,
+                "full_name": self.full_name if " " in (self.full_name or "").strip() else f"{(self.full_name or '')} .",
                 "user_id": self.user_id,
                 "role": self.role,
                 "password": password,
@@ -134,7 +134,7 @@ class SigzenBIUsers(Document):
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,
                 "user_name": user_name,
-                "full_name": full_name,
+                "full_name": full_name if " " in (full_name or "").strip() else f"{(full_name or '')} .",
                 "user_id": user_id,
                 "role": role,
                 "password": password,

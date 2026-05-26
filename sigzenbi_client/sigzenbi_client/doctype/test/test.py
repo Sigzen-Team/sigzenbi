@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class SigzenBIlogin(Document):
+class TEST(Document):
 	pass

@@ -27,27 +27,47 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central client_login.html: {e}", "client_login")
+            frappe.log_error(title="client_login", message=f"Error reading local central client_login.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
         if base_url:
             try:
-                url = f"{base_url}client_login"
+                url = f"{base_url}api/method/sigzenbi_central.www.client_login.get_login_template"
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
-                    central_html = response.text
+                    try:
+                        central_html = response.json().get("message", response.text)
+                    except Exception:
+                        central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central client_login.html: {e}", "client_login")
+                frappe.log_error(title="client_login", message=f"Error fetching central client_login.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load login form.</h1>"
     else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            browser_base_url = base_url
+            if "192.168.1.12" in base_url:
+                browser_base_url = base_url.replace("192.168.1.12", "127.0.0.1")
+            central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{browser_base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
+            
+            # Rewrite hardcoded API endpoints to use Jinja tags
+            central_html = central_html.replace(
+                "'/api/method/sigzenbi_central.www.client_login.login'",
+                "'{{ api_login_url }}'"
+            )
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central client_login template: {e}", "client_login")
+            frappe.log_error(title="client_login", message=f"Error rendering central client_login template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context
@@ -68,25 +88,97 @@ def login(usr=None, pwd=None, **kwargs):
         return
 
     try:
-        login_manager = frappe.auth.LoginManager()
-        login_manager.authenticate(user=usr, pwd=pwd)
-        # Instead of post_login() which sets standard 'sid' and affects Administrator session,
-        # we set custom cookies for the portal user
-        frappe.local.cookie_manager.set_cookie("client_session_user", usr, httponly=True, samesite="Lax")
-        frappe.local.cookie_manager.set_cookie("full_name", frappe.db.get_value("User", usr, "full_name") or usr, httponly=True, samesite="Lax")
-    except frappe.AuthenticationError:
+        base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
+        if base_url and not base_url.endswith('/'):
+            base_url += '/'
+        if not base_url:
+            raise Exception("Central URL not set")
+            
+        url = f"{base_url}api/method/sigzenbi_central.www.client_login.login"
+        response = requests.post(url, json={"usr": usr, "pwd": pwd}, timeout=10)
+        
+        if response.status_code == 200:
+            res_json = response.json()
+            if res_json.get("message", {}).get("status") == "success":
+                from urllib.parse import unquote
+                
+                # Retrieve full name from cookies or fallback to user
+                full_name = usr
+                for cookie in response.cookies:
+                    if cookie.name == "full_name":
+                        full_name = unquote(cookie.value)
+                        break
+
+                # Robust extraction of the logged-in session ID (sid)
+                central_sid = None
+                
+                # 1. Look for a non-Guest sid cookie in response.cookies
+                for cookie in response.cookies:
+                    if cookie.name == "sid" and cookie.value != "Guest":
+                        central_sid = cookie.value
+                        break
+                
+                # 2. Fallback to JSON response if not found in cookies
+                if not central_sid:
+                    message_data = res_json.get("message", {})
+                    if isinstance(message_data, dict):
+                        central_sid = message_data.get("sid")
+                    if not central_sid:
+                        central_sid = res_json.get("sid")
+                
+                # 3. Last fallback to standard cookies.get
+                if not central_sid:
+                    central_sid = response.cookies.get("sid")
+
+                # 4. NEW FALLBACK: Hit standard Frappe login if custom login returned Guest
+                if not central_sid or central_sid == "Guest":
+                    try:
+                        std_url = f"{base_url}api/method/login"
+                        std_res = requests.post(std_url, json={"usr": usr, "pwd": pwd}, timeout=10)
+                        if std_res.status_code == 200:
+                            for cookie in std_res.cookies:
+                                if cookie.name == "sid" and cookie.value != "Guest":
+                                    central_sid = cookie.value
+                                    break
+                    except Exception as fallback_e:
+                        frappe.log_error(title="client_login_fallback", message=str(fallback_e))
+
+                # Log the login extraction details for visibility
+                cookies_dict = {c.name: c.value for c in response.cookies}
+                frappe.log_error(
+                    message=f"Login extraction: central_sid={central_sid}, JSON={res_json}, Cookies={cookies_dict}",
+                    title="client_login_extraction_debug"
+                )
+
+                if central_sid and central_sid != "Guest":
+                    frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax")
+                
+                frappe.local.cookie_manager.set_cookie("client_session_user", usr, httponly=True, samesite="Lax")
+                frappe.local.cookie_manager.set_cookie("full_name", full_name, httponly=True, samesite="Lax")
+                
+                frappe.local.response["message"] = {
+                    "status": "success",
+                    "message": _("Login successful"),
+                    "home_page": "/client_dashboard"
+                }
+                return
+                
+        # If we reach here, it means login failed
         frappe.clear_messages()
         frappe.local.response["message"] = {
             "status": "error",
             "message": _("Invalid login credentials")
         }
         return
-
-    frappe.local.response["message"] = {
-        "status": "success",
-        "message": _("Login successful"),
-        "home_page": "/client_dashboard"
-    }
+        
+    except Exception as e:
+        frappe.log_error(title="client_login", message=f"Proxy login error: {e}")
+        frappe.clear_messages()
+        frappe.local.response["message"] = {
+            "status": "error",
+            "message": _("Invalid login credentials")
+        }
+        return
 
 
 @frappe.whitelist(allow_guest=True)

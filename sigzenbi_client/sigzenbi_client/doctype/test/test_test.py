@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class TestSigzenBIlogin(FrappeTestCase):
+class TestTEST(FrappeTestCase):
 	pass

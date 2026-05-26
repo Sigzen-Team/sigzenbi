@@ -9,9 +9,11 @@ def fetch_dashboards():
     """
     try:
         client_user = None
+        central_sid = None
         if getattr(frappe.local, "request", None):
             from urllib.parse import unquote
             client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+            central_sid = frappe.request.cookies.get("central_sid")
             
         user_email = client_user if client_user else frappe.session.user
         if not user_email or user_email == "Guest":
@@ -23,14 +25,28 @@ def fetch_dashboards():
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         API_URL = f"{base_url}api/method/sigzenbi_central.API.fetch_dashboards.fetch_dashboards"
+        # Update these two lines with your real keys from Step 1!
         API_KEY = "3b87f054c9b1a06"
-        API_SECRET = "8822a4b0438e433"
+        API_SECRET = "4ec5d1e5d007c15"
+        
+        cookies = {}
+        if central_sid:
+            cookies["sid"] = central_sid
+        if client_user:
+            cookies["client_session_user"] = client_user
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"token {API_KEY}:{API_SECRET}"
         }
 
-        response = requests.post(API_URL, headers=headers, json={}, timeout=15)
+        response = requests.post(API_URL, headers=headers, cookies=cookies, json={"user_email": user_email}, timeout=15)
+        res_text = response.text
+        try:
+            with open("/home/avsar/nishu-bench/api_debug.txt", "w") as f:
+                f.write(f"URL: {API_URL}\nUser: {user_email}\nResponse: {res_text}")
+        except Exception:
+            pass
         res_json = response.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
     except Exception as e:
@@ -44,9 +60,11 @@ def get_superset_token(dashboard_id=None):
     """
     try:
         client_user = None
+        central_sid = None
         if getattr(frappe.local, "request", None):
             from urllib.parse import unquote
             client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+            central_sid = frappe.request.cookies.get("central_sid")
             
         user_email = client_user if client_user else frappe.session.user
         if not user_email or user_email == "Guest":
@@ -59,15 +77,23 @@ def get_superset_token(dashboard_id=None):
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         TOKEN_URL = f"{base_url}api/method/sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token"
+        # Update these two lines with your real keys from Step 1!
         API_KEY = "3b87f054c9b1a06"
-        API_SECRET = "8822a4b0438e433"
+        API_SECRET = "4ec5d1e5d007c15"
+        
+        cookies = {}
+        if central_sid:
+            cookies["sid"] = central_sid
+        if client_user:
+            cookies["client_session_user"] = client_user
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"token {API_KEY}:{API_SECRET}"
         }
 
         params = {"dashboard_id": dashboard_id, "user_email": user_email}
-        res = requests.get(TOKEN_URL, headers=headers, params=params, timeout=15)
+        res = requests.get(TOKEN_URL, headers=headers, cookies=cookies, params=params, timeout=15)
         res_json = res.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
             

@@ -45,8 +45,8 @@ const SupersetManager = {
             return;
         }
 
-        // We use fetch to call the Central App API (Cross-Origin)
-        const apiUrl = `${this.centralUrl}/api/method/sigzenbi_central.API.dashboard_api.get_guest_token`;
+        // We call the Client App API which acts as a bridge to the Central App
+        const apiUrl = `/api/method/sigzenbi_client.API.dashboard_api.get_superset_token`;
         
         fetch(`${apiUrl}?dashboard_id=${this.dashboardId}`)
             .then(response => response.json())
@@ -58,7 +58,7 @@ const SupersetManager = {
                     return;
                 }
 
-                const guestToken = message.token;
+                const guestToken = message.guest_token || message.token;
                 const supersetUrl = message.superset_url;
 
                 supersetEmbeddedSdk.embedDashboard({

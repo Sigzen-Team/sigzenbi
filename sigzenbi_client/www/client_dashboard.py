@@ -1,4 +1,3 @@
-# pyrefly: ignore [missing-import]
 import frappe
 import frappe.sessions
 from urllib.parse import unquote
@@ -10,9 +9,11 @@ def get_context(context):
 
     # Retrieve client user from client_session_user cookie
     client_user = None
+    central_sid = None
     if getattr(frappe.local, "request", None):
         try:
             client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+            central_sid = frappe.request.cookies.get("central_sid")
         except Exception:
             pass
     
@@ -22,7 +23,6 @@ def get_context(context):
         raise frappe.Redirect
 
     user = client_user
-
 
 
     # Fetch User Name and Email locally
@@ -52,32 +52,55 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central client_dashboard.html: {e}", "client_dashboard")
+            frappe.log_error(message=f"Error reading local central client_dashboard.html: {e}", title="client_dashboard")
             
+    # Fallback to HTTP
     # Fallback to HTTP
     if not central_html:
         if base_url:
             try:
-                url = f"{base_url}client_dashboard"
+                url = f"{base_url}api/method/sigzenbi_central.www.client_login.get_dashboard_template"
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
-                    central_html = response.text
+                    try:
+                        central_html = response.json().get("message", response.text)
+                    except Exception:
+                        central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central client_dashboard.html: {e}", "client_dashboard")
+                frappe.log_error(message=f"Error fetching central client_dashboard.html: {e}", title="client_dashboard")
                 
     if not central_html:
         context.central_html = "<h1>Could not load dashboard.</h1>"
     else:
+        # Rewrite asset URLs to point to central server
+        if base_url:
+            browser_base_url = base_url
+            if "192.168.1.12" in base_url:
+                browser_base_url = base_url.replace("192.168.1.12", "127.0.0.1")
+            central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{browser_base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
-            # INTERCEPT logout button API call to use our custom decoupled logout
+            # INTERCEPT API calls to use our custom decoupled proxy endpoints
             central_html = central_html.replace(
                 "await fetch('/api/method/logout'",
                 "await fetch('/api/method/sigzenbi_client.www.client_login.logout'"
             )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token",
+                context.api_get_superset_token_url
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.fetch_dashboards.fetch_dashboards",
+                context.api_fetch_dashboards_url
+            )
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central client_dashboard template: {e}", "client_dashboard")
+            frappe.log_error(title="client_dashboard", message=f"Error rendering central client_dashboard template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context

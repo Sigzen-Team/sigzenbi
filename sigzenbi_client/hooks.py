@@ -1,8 +1,8 @@
 app_name = "sigzenbi_client"
 app_title = "SigzenBI Client"
-app_publisher = "Kalp Dalsania"
+app_publisher = "Parin Dave"
 app_description = "It\'s an client side manager for SigzenBI"
-app_email = "kalpdalsania@gmail.com"
+app_email = "parindave15920041@gmail.com"
 app_license = "gpl-3.0"
 
 # Apps

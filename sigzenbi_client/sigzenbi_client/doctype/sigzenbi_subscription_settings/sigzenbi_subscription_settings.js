@@ -9,24 +9,13 @@ frappe.ui.form.on("SigzenBI Subscription Settings", {
                 return;
             }
 
-            const csrfToken = frappe.csrf_token;
-            const API_URL = "http://sigzenbi_central:8003/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details";
-            const API_KEY = "2444eb73c70d250";
-            const API_SECRET = "892b6a6f7860ceb";
             try {
-                const response = await fetch(API_URL, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `token ${API_KEY}:${API_SECRET}`,
-                        "X-Frappe-CSRF-Token": csrfToken
-                    },
-                    body: JSON.stringify({
+                const responseData = await frappe.xcall(
+                    "sigzenbi_client.sigzenbi_client.doctype.sigzenbi_subscription_settings.sigzenbi_subscription_settings.fetch_subscription_details",
+                    {
                         client_name: frm.doc.client_name
-                    })
-                });340
-
-                const responseData = await response.json();
+                    }
+                );
 
                 if (responseData.message && typeof responseData.message === 'string') {
                     frappe.msgprint(__(responseData.message));
