@@ -73,7 +73,6 @@ const SupersetManager = {
                         }
                     }
                 }).then(() => {
-                    console.log("Dashboard embedded successfully");
                     this.styleIframe(mountPoint);
                 });
             })

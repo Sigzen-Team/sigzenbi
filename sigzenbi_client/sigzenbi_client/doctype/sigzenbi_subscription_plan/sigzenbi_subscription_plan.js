@@ -9,7 +9,6 @@ frappe.ui.form.on("SigzenBI Subscription Plan", {
                 return;
             }
 
-            console.log("Client name being sent:", frm.doc.client_name);
             const csrfToken = frappe.csrf_token;
             const API_URL = "http://172.22.206.232:8003/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details";
             const API_KEY = "2444eb73c70d250";
@@ -28,7 +27,6 @@ frappe.ui.form.on("SigzenBI Subscription Plan", {
                 });
 
                 const responseData = await response.json();
-                console.log("Response data:", responseData);
 
                 if (responseData.message && typeof responseData.message === 'string') {
                     frappe.msgprint(__(responseData.message));

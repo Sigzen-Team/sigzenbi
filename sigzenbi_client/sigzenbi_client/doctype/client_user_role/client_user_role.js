@@ -14,7 +14,6 @@ frappe.ui.form.on("Client User Role", {
                 }
             });
 
-            console.log("Excluding roles already selected:", selected_roles);
 
             return {
                 filters: {
