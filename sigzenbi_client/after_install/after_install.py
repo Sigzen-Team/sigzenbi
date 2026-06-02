@@ -24,13 +24,13 @@ def create_role_client():
 
         # Insert the child permission table entry
         # Assuming the child table name is `tabSigzenBI Role Client Permission` and the parentfield is 'permissions'
-        child_name = frappe.generate_hash(length=10)
-        frappe.db.sql("""
-            INSERT INTO `tabSigzenBI Role Client Permission` (name, parent, parentfield, parenttype, permission, creation, modified, owner, idx)
-            VALUES (%s, %s, 'permissions', 'SigzenBI Role Client', %s, NOW(), NOW(), %s, 1)
-        """, (child_name, "Default", "can_info User", frappe.session.user))
+        # child_name = frappe.generate_hash(length=10)
+        # frappe.db.sql("""
+        #     INSERT INTO `tabSigzenBI Role Client Permission` (name, parent, parentfield, parenttype, permission, creation, modified, owner, idx)
+        #     VALUES (%s, %s, 'permissions', 'SigzenBI Role Client', %s, NOW(), NOW(), %s, 1)
+        # """, (child_name, "Default", "can_info User", frappe.session.user))
 
-        frappe.db.commit()
+        # frappe.db.commit()
 
 def set_subscription_settings():
     """
