@@ -3,6 +3,6 @@
 
 frappe.ui.form.on("SigzenBI", {
     onload: function (frm) {
-        window.location.href = "/test_client_home";
+        window.location.href = "/client_home";
     }
 });

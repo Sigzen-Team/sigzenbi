@@ -26,7 +26,7 @@ def get_context(context):
     # Pass the local/proxy API URLs to central's register.html so they are called relative to client
     context.api_get_credentials_url = "/api/method/sigzenbi_client.www.register.register.get_client_credentials"
     context.api_fetch_subscription_url = "/api/method/sigzenbi_client.www.register.register.fetch_client_subscription"
-    context.plans_url = "/test_client_plans"
+    context.plans_url = "/client_plans"
 
     central_html = ""
     # Try filesystem first

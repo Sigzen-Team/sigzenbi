@@ -17,7 +17,7 @@ def get_context(context):
 
     # Pass proxy API URLs/routes to central's client_login.html
     context.api_login_url = "/api/method/sigzenbi_client.www.client_login.login"
-    context.plans_url = "/test_client_plans"
+    context.plans_url = "/client_plans"
 
     central_html = ""
     # Try filesystem first

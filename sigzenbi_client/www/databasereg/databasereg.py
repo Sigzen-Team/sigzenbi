@@ -27,7 +27,7 @@ def get_context(context):
 
     context.csrf_token = frappe.sessions.get_csrf_token()
     context.api_get_database_credentials_url = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_database_credentials"
-    context.plans_url = "/test_client_plans"
+    context.plans_url = "/client_plans"
 
     central_html = ""
     # Try filesystem first

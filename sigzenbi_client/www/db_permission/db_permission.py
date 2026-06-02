@@ -18,7 +18,7 @@ def get_context(context):
     context.central_url = base_url
 
 
-    context.plans_url = "/test_client_plans"
+    context.plans_url = "/client_plans"
 
     central_html = ""
     # Try filesystem first

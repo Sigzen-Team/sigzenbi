@@ -12,7 +12,7 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central home.html: {e}", "test_client_home")
+            frappe.log_error(f"Error reading local central home.html: {e}", "client_home")
             
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
@@ -40,7 +40,7 @@ def get_context(context):
                             central_html = response_alt.text
                             break
             except Exception as e:
-                frappe.log_error(f"Error fetching central home.html via URL: {e}", "test_client_home")
+                frappe.log_error(f"Error fetching central home.html via URL: {e}", "client_home")
                 
     if not central_html:
         context.central_html = "<h1>Could not load central page content.</h1>"
@@ -54,17 +54,17 @@ def get_context(context):
             central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
 
         # Redirect the plans button / link to our client plans page
-        central_html = central_html.replace('"/plans/plans"', '"/test_client_plans"')
-        central_html = central_html.replace("'/plans/plans'", "'/test_client_plans'")
-        central_html = central_html.replace('"/plans"', '"/test_client_plans"')
-        central_html = central_html.replace("'/plans'", "'/test_client_plans'")
+        central_html = central_html.replace('"/plans/plans"', '"/client_plans"')
+        central_html = central_html.replace("'/plans/plans'", "'/client_plans'")
+        central_html = central_html.replace('"/plans"', '"/client_plans"')
+        central_html = central_html.replace("'/plans'", "'/client_plans'")
         
-        context.plans_url = "/test_client_plans"
+        context.plans_url = "/client_plans"
 
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central home template: {e}", "test_client_home")
+            frappe.log_error(f"Error rendering central home template: {e}", "client_home")
             context.central_html = central_html
             
     return context

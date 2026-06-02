@@ -42,7 +42,7 @@ def get_context(context):
     # Pass proxy endpoints to pre-rendered HTML
     context.api_get_superset_token_url = "sigzenbi_client.API.dashboard_api.get_superset_token"
     context.api_fetch_dashboards_url = "sigzenbi_client.API.dashboard_api.fetch_dashboards"
-    context.plans_url = "/test_client_plans"
+    context.plans_url = "/client_plans"
 
     central_html = ""
     # Try filesystem first
