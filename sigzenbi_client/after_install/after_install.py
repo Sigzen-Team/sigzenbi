@@ -44,4 +44,4 @@ def set_subscription_settings():
         settings.save(ignore_permissions=True)
         frappe.db.commit()
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Failed to set SigzenBI Subscription Settings")
+        frappe.log_error(title="Failed to set SigzenBI Subscription Settings", message=frappe.get_traceback())

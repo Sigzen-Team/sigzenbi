@@ -19,7 +19,7 @@ def get_context(context):
         else:
             context.subscription_plans = []
     except Exception as e:
-        frappe.log_error(f"Plans Page Client Error: {e}", "Plans Error")
+        frappe.log_error(title="Plans Error", message=f"Plans Page Client Error: {e}")
         context.subscription_plans = []
 
     context.csrf_token = frappe.sessions.get_csrf_token()
@@ -32,7 +32,7 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central plans.html: {e}", "client_plans")
+            frappe.log_error(title="client_plans", message=f"Error reading local central plans.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
@@ -43,7 +43,7 @@ def get_context(context):
                 if response.status_code == 200:
                     central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central plans.html: {e}", "client_plans")
+                frappe.log_error(title="client_plans", message=f"Error fetching central plans.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load subscription plans.</h1>"
@@ -52,7 +52,7 @@ def get_context(context):
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central plans template: {e}", "client_plans")
+            frappe.log_error(title="client_plans", message=f"Error rendering central plans template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context

@@ -126,7 +126,7 @@ def parse_response(response):
                     error_msg = exc_msgs[0]
             except Exception:
                 error_msg = res_json["exc"].split("\n")[0]
-                
+               
         if not error_msg:
             # Fallback to general message or error status
             error_msg = res_json.get("message", {}).get("message") if isinstance(res_json.get("message"), dict) else res_json.get("message")

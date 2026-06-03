@@ -53,7 +53,7 @@ class SigzenBIUsers(Document):
                 frappe.msgprint(response.get("message"))
             sync_role(self.user_name)  
         except Exception as e:
-            frappe.log_error(str(e), "SigzenBI User Sync Failed")
+            frappe.log_error(title="SigzenBI User Sync Failed", message=str(e))
 
     def before_insert(self):
         """Check user limit before inserting a new user."""
@@ -107,7 +107,7 @@ class SigzenBIUsers(Document):
         if client_role_doc:
             frappe.delete_doc("Client User Role", client_role_doc[0].name)
         else:
-            frappe.log_error(f"No Client User Role found for user_name: {self.user_name}", "Deletion Warning")
+            frappe.log_error(title="Deletion Warning", message=f"No Client User Role found for user_name: {self.user_name}")
         
         
     def on_trash(self):
@@ -154,7 +154,7 @@ class SigzenBIUsers(Document):
             frappe.db.sql("DELETE FROM `tabBI Role Client` WHERE parent = %s", (user_name))
             # sync_role(self.user_name)
         except Exception as e:
-            frappe.log_error(str(e), "SigzenBI User Sync Failed on Deletion")
+            frappe.log_error(title="SigzenBI User Sync Failed on Deletion", message=str(e))
 
         # Now update user count (subtract 1)
         settings.current_users = frappe.db.count("SigzenBI Users") - 1

@@ -50,7 +50,7 @@ def fetch_dashboards():
         res_json = response.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
     except Exception as e:
-        frappe.log_error(f"Error in client fetch_dashboards: {str(e)}", "fetch_dashboards_client")
+        frappe.log_error(title="fetch_dashboards_client", message=f"Error in client fetch_dashboards: {str(e)}")
         return {"success": False, "message": str(e)}
 
 @frappe.whitelist(allow_guest=True)
@@ -98,5 +98,5 @@ def get_superset_token(dashboard_id=None):
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
             
     except Exception as e:
-        frappe.log_error(f"Error in client get_superset_token: {str(e)}", "get_superset_token_client")
+        frappe.log_error(title="get_superset_token_client", message=f"Error in client get_superset_token: {str(e)}")
         return {"success": False, "message": str(e)}

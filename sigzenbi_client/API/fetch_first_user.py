@@ -58,7 +58,7 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
 
     except Exception as e:
         frappe.db.rollback()
-        frappe.log_error(frappe.get_traceback(), "fetch_first_user")
+        frappe.log_error(title="fetch_first_user", message=frappe.get_traceback())
         return {
             "status": "error",
             "message": f"An error occurred: {str(e)}"

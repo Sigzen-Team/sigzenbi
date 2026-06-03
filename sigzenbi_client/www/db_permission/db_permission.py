@@ -28,7 +28,7 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central db_permission.html: {e}", "db_permission_proxy")
+            frappe.log_error(title="db_permission_proxy", message=f"Error reading local central db_permission.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
@@ -42,7 +42,7 @@ def get_context(context):
                 if response.status_code == 200:
                     central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central db_permission.html: {e}", "db_permission_proxy")
+                frappe.log_error(title="db_permission_proxy", message=f"Error fetching central db_permission.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load database permission page.</h1>"

@@ -37,10 +37,10 @@ def fetch_and_update_permissions():
         payload = {"client_name": client_name}
 
         # Call the API
-        frappe.log_error(f"Calling API with client_name: {client_name}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"Calling API with client_name: {client_name}")
         response = requests.post(API_URL, headers=headers, json=payload)
         response_data = response.json()
-        frappe.log_error(f"API Response: {json.dumps(response_data, indent=2)}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"API Response: {json.dumps(response_data, indent=2)}")
 
         if response.status_code != 200 or not (response_data.get("message") and response_data["message"].get("status") == "success"):
             return {
@@ -59,7 +59,7 @@ def fetch_and_update_permissions():
         # Delete all existing SigzenBI Permission Client records
         frappe.db.delete('SigzenBI Permission Client', {})
         frappe.db.commit()
-        frappe.log_error("Deleted all existing SigzenBI Permission Client records", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message="Deleted all existing SigzenBI Permission Client records")
 
         # Insert new permissions
         inserted_count = 0
@@ -73,9 +73,9 @@ def fetch_and_update_permissions():
                 })
                 doc.insert(ignore_permissions=False)  # Respect user permissions
                 inserted_count += 1
-                frappe.log_error(f"Inserted permission: {permission}", "fetch_and_update_permissions")
+                frappe.log_error(title="fetch_and_update_permissions", message=f"Inserted permission: {permission}")
             except Exception as e:
-                frappe.log_error(f"Error inserting permission {permission}: {str(e)}", "fetch_and_update_permissions")
+                frappe.log_error(title="fetch_and_update_permissions", message=f"Error inserting permission {permission}: {str(e)}")
                 continue  # Skip failed inserts to continue processing others
 
         frappe.db.commit()
@@ -86,7 +86,7 @@ def fetch_and_update_permissions():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error in fetch_and_update_permissions: {str(e)}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"Error in fetch_and_update_permissions: {str(e)}")
         return {
             "status": "error",
             "error": str(e)

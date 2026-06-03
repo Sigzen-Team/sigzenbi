@@ -11,10 +11,10 @@ def get_context(context):
             from frappe.installer import install_app
             install_app("sigzenbi_client")
             frappe.db.commit()
-            frappe.log_error("Successfully installed sigzenbi_client programmatically!", "App Installer")
+            frappe.log_error(title="App Installer", message="Successfully installed sigzenbi_client programmatically!")
         except Exception as e:
             import traceback
-            frappe.log_error(f"Failed programmatically installing sigzenbi_client: {e}\n{traceback.format_exc()}", "App Installer")
+            frappe.log_error(title="App Installer", message=f"Failed programmatically installing sigzenbi_client: {e}\n{traceback.format_exc()}")
 
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
@@ -36,7 +36,7 @@ def get_context(context):
             with open(local_path, "r", encoding="utf-8") as f:
                 central_html = f.read()
         except Exception as e:
-            frappe.log_error(f"Error reading local central register.html: {e}", "register")
+            frappe.log_error(title="register", message=f"Error reading local central register.html: {e}")
             
     # Fallback to HTTP
     if not central_html:
@@ -47,7 +47,7 @@ def get_context(context):
                 if response.status_code == 200:
                     central_html = response.text
             except Exception as e:
-                frappe.log_error(f"Error fetching central register.html: {e}", "register")
+                frappe.log_error(title="register", message=f"Error fetching central register.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load registration form.</h1>"
@@ -74,7 +74,7 @@ def get_context(context):
         try:
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
-            frappe.log_error(f"Error rendering central register template: {e}", "register")
+            frappe.log_error(title="register", message=f"Error rendering central register template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
             
     return context
@@ -161,7 +161,7 @@ def get_client_credentials(**kwargs):
             
         return parsed
     except Exception as e:
-        frappe.log_error(f"Get Client Credentials Proxy Error: {e}", "Credentials Proxy Error")
+        frappe.log_error(title="Credentials Proxy Error", message=f"Get Client Credentials Proxy Error: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -187,5 +187,5 @@ def fetch_client_subscription(**kwargs):
             
         return parsed
     except Exception as e:
-        frappe.log_error(f"Fetch Client Subscription Proxy Error: {e}", "Subscription Proxy Error")
+        frappe.log_error(title="Subscription Proxy Error", message=f"Fetch Client Subscription Proxy Error: {e}")
         return {"status": "error", "message": str(e)}
