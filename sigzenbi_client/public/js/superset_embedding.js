@@ -3,17 +3,18 @@
  */
 
 const SupersetManager = {
-    // Configuration
-    centralUrl: "http://127.0.0.1:8003", // Where the API resides
-    dashboardId: "c46f90f4-f81f-4413-a650-3e861b02e670", // Default UUID
-    
     /**
      * Initialize the embedding process
      * @param {string} containerId - The ID of the HTML element to mount the dashboard
+     * @param {string} dashboardId - The UUID of the dashboard to render
      */
-    init: function(containerId) {
+    init: function(containerId, dashboardId) {
+        if (!dashboardId) {
+            console.error("dashboardId is required to initialize embedding");
+            return;
+        }
         this.loadSDK(() => {
-            this.embed(containerId);
+            this.embed(containerId, dashboardId);
         });
     },
 
@@ -35,9 +36,10 @@ const SupersetManager = {
 
     /**
      * Fetch guest token and embed the dashboard
+     * @param {string} containerId - The ID of the HTML element to mount the dashboard
+     * @param {string} dashboardId - The UUID of the dashboard to render
      */
-    embed: function(containerId) {
-        const self = this;
+    embed: function(containerId, dashboardId) {
         const mountPoint = document.getElementById(containerId);
 
         if (!mountPoint) {
@@ -48,7 +50,7 @@ const SupersetManager = {
         // We call the Client App API which acts as a bridge to the Central App
         const apiUrl = `/api/method/sigzenbi_client.API.dashboard_api.get_superset_token`;
         
-        fetch(`${apiUrl}?dashboard_id=${this.dashboardId}`)
+        fetch(`${apiUrl}?dashboard_id=${dashboardId}`)
             .then(response => response.json())
             .then(data => {
                 const message = data.message;
@@ -62,7 +64,7 @@ const SupersetManager = {
                 const supersetUrl = message.superset_url;
 
                 supersetEmbeddedSdk.embedDashboard({
-                    id: self.dashboardId,
+                    id: dashboardId,
                     supersetDomain: supersetUrl,
                     mountPoint: mountPoint,
                     fetchGuestToken: () => Promise.resolve(guestToken),
@@ -97,4 +99,4 @@ const SupersetManager = {
 };
 
 // Usage Example:
-// SupersetManager.init("dashboard-container");
+// SupersetManager.init("dashboard-container", "your-dashboard-uuid-here");

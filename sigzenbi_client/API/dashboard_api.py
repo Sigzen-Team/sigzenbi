@@ -25,9 +25,8 @@ def fetch_dashboards():
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         API_URL = f"{base_url}api/method/sigzenbi_central.API.fetch_dashboards.fetch_dashboards"
-        # Update these two lines with your real keys from Step 1!
-        API_KEY = "3b87f054c9b1a06"
-        API_SECRET = "4ec5d1e5d007c15"
+        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
+        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
@@ -77,9 +76,8 @@ def get_superset_token(dashboard_id=None):
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         TOKEN_URL = f"{base_url}api/method/sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token"
-        # Update these two lines with your real keys from Step 1!
-        API_KEY = "3b87f054c9b1a06"
-        API_SECRET = "4ec5d1e5d007c15"
+        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
+        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
