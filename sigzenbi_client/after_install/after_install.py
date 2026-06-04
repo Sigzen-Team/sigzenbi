@@ -39,8 +39,8 @@ def set_subscription_settings():
     try:
         # Load the singleton doc
         settings = frappe.get_single("SigzenBI Subscription Settings")
-        settings.sigzenbi_link = "http://172.22.206.232:8004"  # Change to production default if needed
-        settings.sigzenbi_erp_link = "http://172.22.206.232:8004"  # Change to production default if needed
+        settings.sigzenbi_link = "http://127.0.0.1:8088"  # Change to production default if needed
+        settings.sigzenbi_erp_link = "http://127.0.0.1:8007"  # Change to production default if needed
         settings.save(ignore_permissions=True)
         frappe.db.commit()
     except Exception as e:
