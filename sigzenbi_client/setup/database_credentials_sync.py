@@ -2,7 +2,7 @@ import frappe
 import requests
 
 # Need to change this url to the one that is used in the sigzenbi_central app
-url = "http://172.22.206.232:8003/api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
+url = "http://http://127.0.0.1:8007/api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
 
 client_name = frappe.db.get_single_value("Global Defaults", "default_company")
 
