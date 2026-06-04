@@ -10,9 +10,19 @@ class SigzenBISubscriptionSettings(Document):
 
 @frappe.whitelist()
 def fetch_subscription_details(client_name):
-	url = "http://192.168.1.12:8003/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details"
-	api_key = "2444eb73c70d250"
-	api_secret = "892b6a6f7860ceb"
+	# Retrieve central ERP link dynamically from Settings
+	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
+	if base_url and not base_url.endswith('/'):
+		base_url += '/'
+		
+	if not base_url:
+		frappe.throw("Central ERP Link is not set in SigzenBI Subscription Settings.")
+
+	url = f"{base_url}api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details"
+	
+	# Retrieve API credentials dynamically from Settings
+	api_key = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
+	api_secret = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
 	
 	try:
 		response = requests.post(
@@ -20,8 +30,7 @@ def fetch_subscription_details(client_name):
 			json={"client_name": client_name},
 			headers={
 				"Authorization": f"token {api_key}:{api_secret}",
-				"Content-Type": "application/json",
-				"Host": "sigzenbi_central"
+				"Content-Type": "application/json"
 			}
 		)
 		response.raise_for_status()
