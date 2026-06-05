@@ -8,6 +8,8 @@ class SigzenBIRoleClient(Document):
     def autoname(self):
         """Generate a unique name for the role based on client name and role name."""   
         client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
+        if client_name:
+            client_name = client_name.strip()
         client_name = client_name.replace(" ", "_") if client_name else "default_client"
         self.name = f"{client_name}_{self.role_name}"
     def get_client_name(self):
@@ -51,6 +53,8 @@ class SigzenBIRoleClient(Document):
     def sync_to_server(self, operation):
         server_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
         client_name = self.get_client_name()
+        if client_name:
+            client_name = client_name.strip()
         api_key = frappe.db.get_single_value("SigzenBI Subscription Settings", "api_key")
         api_secret = frappe.db.get_single_value("SigzenBI Subscription Settings", "api_secret")
 
@@ -61,6 +65,9 @@ class SigzenBIRoleClient(Document):
 
         if not server_url.startswith(("http://", "https://")):
             server_url = f"http://{server_url}"
+        
+        if not server_url.endswith("/"):
+            server_url += "/"
 
         headers = {
             "Content-Type": "application/json"
@@ -91,8 +98,8 @@ class SigzenBIRoleClient(Document):
 
         try:
             frappe.log_error(
-                message=f"Sending {operation} request to {server_url}\nPayload: {json.dumps(data, indent=2)}",
-                title="Client Sync Request"
+                title="Client Sync Request",
+                message=f"Sending {operation} request to {server_url}\nPayload: {json.dumps(data, indent=2)}"
             )
 
             response = requests.post(
@@ -102,21 +109,21 @@ class SigzenBIRoleClient(Document):
             )
             response.raise_for_status()
 
-            frappe.log_error(f"Raw Response Text: {response.text}", "Sync Response Raw")
+            frappe.log_error(title="Sync Response Raw", message=f"Raw Response Text: {response.text}")
 
             try:
                 result = response.json()
             except json.JSONDecodeError:
-                frappe.log_error(f"Non-JSON response: {response.text}", "Client Sync Error")
+                frappe.log_error(title="Client Sync Error", message=f"Non-JSON response: {response.text}")
                 frappe.throw("Server returned invalid JSON response")
 
             server_message = result.get("message", {})
             if server_message.get("status") != "success":
                 error_message = server_message.get("message", "Unknown error")
-                frappe.log_error(f"Server Sync Failed: {error_message}\nResponse: {json.dumps(result, indent=2)}", "Client Sync Error")
+                frappe.log_error(title="Client Sync Error", message=f"Server Sync Failed: {error_message}\nResponse: {json.dumps(result, indent=2)}")
                 frappe.throw(f"Server Sync Failed: {error_message}")
 
-            frappe.log_error(f"Successful {operation}: {server_message.get('message')}", "Client Sync Success")
+            frappe.log_error(title="Client Sync Success", message=f"Successful {operation}: {server_message.get('message')}")
 
             if operation == "create":
                 return server_message
@@ -124,10 +131,10 @@ class SigzenBIRoleClient(Document):
             return True
 
         except requests.exceptions.RequestException as e:
-            frappe.log_error(f"Request failed: {str(e)}\nResponse: {getattr(e.response, 'text', 'No response')}", "Client Sync Error")
+            frappe.log_error(title="Client Sync Error", message=f"Request failed: {str(e)}\nResponse: {getattr(e.response, 'text', 'No response')}")
             frappe.throw(f"Failed to sync with server: {str(e)}")
 
         except Exception as e:
-            frappe.log_error(f"Unexpected error: {str(e)}", "Client Sync Error")
+            frappe.log_error(title="Client Sync Error", message=f"Unexpected error: {str(e)}")
             frappe.throw(f"Unexpected error occurred: {str(e)}")
             

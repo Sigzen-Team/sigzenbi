@@ -1,4 +1,4 @@
-# Copyright (c) 2025, Kalp Dalsania and contributors
+# Copyright (c) 2026, Parin Dave and contributors
 # For license information, please see license.txt
 
 import frappe   
@@ -14,7 +14,11 @@ def fetch_and_update_permissions():
     try:
         # Get client_name from SigzenBI Subscription Settings
         client_name = frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name')
+        if client_name:
+            client_name = client_name.strip()
         base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
+        if base_url and not base_url.endswith("/"):
+            base_url += "/"
         if not client_name:
             return {
                 "status": "error",
@@ -23,8 +27,8 @@ def fetch_and_update_permissions():
 
         # API configuration
         API_URL = f"{base_url}api/method/sigzenbi_central.API.send_permissions.send_permissions"
-        API_KEY = "3b87f054c9b1a06"
-        API_SECRET = "8822a4b0438e433"
+        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
+        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"token {API_KEY}:{API_SECRET}",
@@ -33,10 +37,10 @@ def fetch_and_update_permissions():
         payload = {"client_name": client_name}
 
         # Call the API
-        frappe.log_error(f"Calling API with client_name: {client_name}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"Calling API with client_name: {client_name}")
         response = requests.post(API_URL, headers=headers, json=payload)
         response_data = response.json()
-        frappe.log_error(f"API Response: {json.dumps(response_data, indent=2)}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"API Response: {json.dumps(response_data, indent=2)}")
 
         if response.status_code != 200 or not (response_data.get("message") and response_data["message"].get("status") == "success"):
             return {
@@ -55,7 +59,7 @@ def fetch_and_update_permissions():
         # Delete all existing SigzenBI Permission Client records
         frappe.db.delete('SigzenBI Permission Client', {})
         frappe.db.commit()
-        frappe.log_error("Deleted all existing SigzenBI Permission Client records", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message="Deleted all existing SigzenBI Permission Client records")
 
         # Insert new permissions
         inserted_count = 0
@@ -69,9 +73,9 @@ def fetch_and_update_permissions():
                 })
                 doc.insert(ignore_permissions=False)  # Respect user permissions
                 inserted_count += 1
-                frappe.log_error(f"Inserted permission: {permission}", "fetch_and_update_permissions")
+                frappe.log_error(title="fetch_and_update_permissions", message=f"Inserted permission: {permission}")
             except Exception as e:
-                frappe.log_error(f"Error inserting permission {permission}: {str(e)}", "fetch_and_update_permissions")
+                frappe.log_error(title="fetch_and_update_permissions", message=f"Error inserting permission {permission}: {str(e)}")
                 continue  # Skip failed inserts to continue processing others
 
         frappe.db.commit()
@@ -82,7 +86,7 @@ def fetch_and_update_permissions():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error in fetch_and_update_permissions: {str(e)}", "fetch_and_update_permissions")
+        frappe.log_error(title="fetch_and_update_permissions", message=f"Error in fetch_and_update_permissions: {str(e)}")
         return {
             "status": "error",
             "error": str(e)

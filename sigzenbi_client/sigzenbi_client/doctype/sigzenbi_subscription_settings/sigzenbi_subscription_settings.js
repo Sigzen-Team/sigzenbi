@@ -1,32 +1,21 @@
-// Copyright (c) 2025, Kalp Dalsania and contributors
+// Copyright (c) 2026, Parin Dave and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on("SigzenBI Subscription Settings", {
-	refresh(frm) {
-        frm.add_custom_button(__('Fetch Subscription Details'), async function() {
+    refresh(frm) {
+        frm.add_custom_button(__('Fetch Subscription Details'), async function () {
             if (!frm.doc.client_name) {
                 frappe.msgprint(__('Please set Client Name first.'));
                 return;
             }
 
-            const csrfToken = frappe.csrf_token;
-            const API_URL = "http://127.0.0.1:8000/api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details";
-            const API_KEY = "3b87f054c9b1a06";
-            const API_SECRET = "8822a4b0438e433";
             try {
-                const response = await fetch(API_URL, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `token ${API_KEY}:${API_SECRET}`,
-                        "X-Frappe-CSRF-Token": csrfToken
-                    },
-                    body: JSON.stringify({
+                const responseData = await frappe.xcall(
+                    "sigzenbi_client.sigzenbi_client.doctype.sigzenbi_subscription_settings.sigzenbi_subscription_settings.fetch_subscription_details",
+                    {
                         client_name: frm.doc.client_name
-                    })
-                });
-
-                const responseData = await response.json();
+                    }
+                );
 
                 if (responseData.message && typeof responseData.message === 'string') {
                     frappe.msgprint(__(responseData.message));
@@ -37,10 +26,10 @@ frappe.ui.form.on("SigzenBI Subscription Settings", {
                         args: {
                             doctype: "SigzenBI Users",
                         },
-                        callback: function(res) {
+                        callback: function (res) {
                             if (res.message !== undefined) {
                                 const current_users_count = res.message;
-                    
+
                                 frappe.call({
                                     method: "frappe.client.set_value",
                                     args: {
@@ -64,7 +53,7 @@ frappe.ui.form.on("SigzenBI Subscription Settings", {
                                             sigzenbi_link: subscriptionDetails.sigzenbi_link,
                                         }
                                     },
-                                    callback: function(response) {
+                                    callback: function (response) {
                                         frappe.show_alert({
                                             message: __('Subscription details fetched successfully.'),
                                             indicator: 'green'

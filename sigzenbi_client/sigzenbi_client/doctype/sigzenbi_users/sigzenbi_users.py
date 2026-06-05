@@ -1,7 +1,9 @@
-# Copyright (c) 2025, Kalp Dalsania and contributors
+# Copyright (c) 2026, Parin Dave and contributors
 # For license information, please see license.txt
 
+# pyrefly: ignore [missing-import]
 import frappe
+# pyrefly: ignore [missing-import]
 from frappe.model.document import Document
 import requests
 from frappe.utils.password import get_decrypted_password
@@ -12,6 +14,9 @@ class SigzenBIUsers(Document):
         """Synchronize user data with the central server."""
         settings = frappe.get_single("SigzenBI Subscription Settings")
         base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
+        if base_url and not base_url.endswith("/"):
+            base_url += "/"
+
         admin_user_name = frappe.db.get_value(
             "SigzenBI Users",
             {"role": "Admin"},
@@ -30,9 +35,9 @@ class SigzenBIUsers(Document):
             "api_secret": settings.api_secret,
             "action": action,
             "user_data": {
-                "client_name": settings.client_name,
+                "client_name": settings.client_name.strip() if settings.client_name else None,
                 "user_name": self.user_name,
-                "full_name": self.full_name,
+                "full_name": self.full_name if " " in (self.full_name or "").strip() else f"{(self.full_name or '')} .",
                 "user_id": self.user_id,
                 "role": self.role,
                 "password": password,
@@ -48,7 +53,7 @@ class SigzenBIUsers(Document):
                 frappe.msgprint(response.get("message"))
             sync_role(self.user_name)  
         except Exception as e:
-            frappe.log_error(str(e), "SigzenBI User Sync Failed")
+            frappe.log_error(title="SigzenBI User Sync Failed", message=str(e))
 
     def before_insert(self):
         """Check user limit before inserting a new user."""
@@ -102,7 +107,7 @@ class SigzenBIUsers(Document):
         if client_role_doc:
             frappe.delete_doc("Client User Role", client_role_doc[0].name)
         else:
-            frappe.log_error(f"No Client User Role found for user_name: {self.user_name}", "Deletion Warning")
+            frappe.log_error(title="Deletion Warning", message=f"No Client User Role found for user_name: {self.user_name}")
         
         
     def on_trash(self):
@@ -127,9 +132,9 @@ class SigzenBIUsers(Document):
             "api_secret": settings.api_secret,
             "action": "delete",
             "user_data": {
-                "client_name": settings.client_name,
+                "client_name": settings.client_name.strip() if settings.client_name else None,
                 "user_name": user_name,
-                "full_name": full_name,
+                "full_name": full_name if " " in (full_name or "").strip() else f"{(full_name or '')} .",
                 "user_id": user_id,
                 "role": role,
                 "password": password,
@@ -139,6 +144,8 @@ class SigzenBIUsers(Document):
 
         try:
             base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
+            if base_url and not base_url.endswith("/"):
+                base_url += "/"
             url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
@@ -147,7 +154,7 @@ class SigzenBIUsers(Document):
             frappe.db.sql("DELETE FROM `tabBI Role Client` WHERE parent = %s", (user_name))
             # sync_role(self.user_name)
         except Exception as e:
-            frappe.log_error(str(e), "SigzenBI User Sync Failed on Deletion")
+            frappe.log_error(title="SigzenBI User Sync Failed on Deletion", message=str(e))
 
         # Now update user count (subtract 1)
         settings.current_users = frappe.db.count("SigzenBI Users") - 1
@@ -155,8 +162,12 @@ class SigzenBIUsers(Document):
         
 def sync_role(user_name):
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
+    if base_url and not base_url.endswith("/"):
+        base_url += "/"
     roles = [role.role for role in frappe.get_all('BI Role Client', filters={'parent': user_name}, fields=['role']) if role.role]
     client_name = frappe.get_single("SigzenBI Subscription Settings").client_name
+    if client_name:
+        client_name = client_name.strip()
 
     payload = {
         "user": user_name,

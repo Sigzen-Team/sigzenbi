@@ -1,11 +1,11 @@
-// Copyright (c) 2025, Kalp Dalsania and contributors
+// Copyright (c) 2026, Parin Dave and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on("SigzenBI Users", {
-	refresh(frm) {
+    refresh(frm) {
     },
-    
-    user_name: function(frm) {
+
+    user_name: function (frm) {
         if (frm.doc.user_name) {
             frappe.db.get_value('User', frm.doc.user_name, 'full_name', (r) => {
                 if (r && r.full_name) {
