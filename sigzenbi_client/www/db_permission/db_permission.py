@@ -1,7 +1,6 @@
 import frappe
 import frappe.sessions
 import requests
-import os
 
 def get_context(context):
     # Ensure client has activated the plan
@@ -21,28 +20,15 @@ def get_context(context):
     context.plans_url = "/client_plans"
 
     central_html = ""
-    # Try filesystem first
-    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/db_permission/db_permission.html"
-    if os.path.exists(local_path):
+    # Fetch from HTTP
+    if base_url:
         try:
-            with open(local_path, "r", encoding="utf-8") as f:
-                central_html = f.read()
+            url = f"{base_url}db_permission/db_permission"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                central_html = response.text
         except Exception as e:
-            frappe.log_error(title="db_permission_proxy", message=f"Error reading local central db_permission.html: {e}")
-            
-    # Fallback to HTTP
-    if not central_html:
-        base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
-        if base_url:
-            if not base_url.endswith('/'):
-                base_url += '/'
-            try:
-                url = f"{base_url}db_permission/db_permission"
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    central_html = response.text
-            except Exception as e:
-                frappe.log_error(title="db_permission_proxy", message=f"Error fetching central db_permission.html: {e}")
+            frappe.log_error(title="db_permission_proxy", message=f"Error fetching central db_permission.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load database permission page.</h1>"

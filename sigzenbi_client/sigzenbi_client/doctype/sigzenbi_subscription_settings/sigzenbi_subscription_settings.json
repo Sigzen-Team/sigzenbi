@@ -204,8 +204,7 @@
   {
    "fieldname": "sigzenbi_link",
    "fieldtype": "Data",
-   "label": "SigzenBI Link",
-   "read_only": 1
+   "label": "SigzenBI Link"
   },
   {
    "fieldname": "column_break_kcem",
@@ -217,11 +216,10 @@
    "label": "SigzenBI ERP Link"
   }
  ],
- "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-05-05 11:06:15.318747",
+ "modified": "2026-06-05 15:15:11.391131",
  "modified_by": "Administrator",
  "module": "SigzenBI Client",
  "name": "SigzenBI Subscription Settings",
@@ -238,7 +236,6 @@
    "write": 1
   }
  ],
- "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

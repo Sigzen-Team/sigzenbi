@@ -3,7 +3,6 @@ import frappe
 import frappe.sessions
 import requests
 import json
-import os
 
 def get_context(context):
     if "sigzenbi_client" not in frappe.get_installed_apps():
@@ -29,25 +28,15 @@ def get_context(context):
     context.plans_url = "/client_plans"
 
     central_html = ""
-    # Try filesystem first
-    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/register/register.html"
-    if os.path.exists(local_path):
+    # Fetch from HTTP
+    if base_url:
         try:
-            with open(local_path, "r", encoding="utf-8") as f:
-                central_html = f.read()
+            url = f"{base_url}register/register"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                central_html = response.text
         except Exception as e:
-            frappe.log_error(title="register", message=f"Error reading local central register.html: {e}")
-            
-    # Fallback to HTTP
-    if not central_html:
-        if base_url:
-            try:
-                url = f"{base_url}register/register"
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    central_html = response.text
-            except Exception as e:
-                frappe.log_error(title="register", message=f"Error fetching central register.html: {e}")
+            frappe.log_error(title="register", message=f"Error fetching central register.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Could not load registration form.</h1>"

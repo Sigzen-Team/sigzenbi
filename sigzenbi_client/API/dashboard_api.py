@@ -40,12 +40,6 @@ def fetch_dashboards():
         }
 
         response = requests.post(API_URL, headers=headers, cookies=cookies, json={"user_email": user_email}, timeout=15)
-        res_text = response.text
-        try:
-            with open("/home/avsar/nishu-bench/api_debug.txt", "w") as f:
-                f.write(f"URL: {API_URL}\nUser: {user_email}\nResponse: {res_text}")
-        except Exception:
-            pass
         res_json = response.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
     except Exception as e:

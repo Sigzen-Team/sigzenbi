@@ -3,7 +3,6 @@ import frappe
 def create_default_permissions_and_roles():
     create_permission_client()
     create_role_client()
-    set_subscription_settings()
 
 def create_permission_client():
     # Check if the permission already exists
@@ -31,17 +30,3 @@ def create_role_client():
         # """, (child_name, "Default", "can_info User", frappe.session.user))
 
         # frappe.db.commit()
-
-def set_subscription_settings():
-    """
-    Set default values for the SigzenBI Subscription Settings single doctype
-    """
-    try:
-        # Load the singleton doc
-        settings = frappe.get_single("SigzenBI Subscription Settings")
-        settings.sigzenbi_link = "http://127.0.0.1:8088"  # Change to production default if needed
-        settings.sigzenbi_erp_link = "http://127.0.0.1:8007"  # Change to production default if needed
-        settings.save(ignore_permissions=True)
-        frappe.db.commit()
-    except Exception as e:
-        frappe.log_error(title="Failed to set SigzenBI Subscription Settings", message=frappe.get_traceback())

@@ -1,6 +1,5 @@
 import frappe
 import requests
-import os
 
 no_cache = 1
 
@@ -40,25 +39,15 @@ def get_context(context):
 
 
     central_html = ""
-    # Try filesystem first
-    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/register/thanks.html"
-    if os.path.exists(local_path):
+    # Fetch from HTTP
+    if base_url:
         try:
-            with open(local_path, "r", encoding="utf-8") as f:
-                central_html = f.read()
+            url = f"{base_url}thanks"
+            response = requests.get(url, timeout=50, allow_redirects=False)
+            if response.status_code == 200:
+                central_html = response.text
         except Exception as e:
-            frappe.log_error(title="thankyou", message=f"Error reading local central thanks.html: {e}")
-            
-    # Fallback to HTTP
-    if not central_html:
-        if base_url:
-            try:
-                url = f"{base_url}thanks"
-                response = requests.get(url, timeout=50, allow_redirects=False)
-                if response.status_code == 200:
-                    central_html = response.text
-            except Exception as e:
-                frappe.log_error(title="thankyou", message=f"Error fetching central thanks.html: {e}")
+            frappe.log_error(title="thankyou", message=f"Error fetching central thanks.html: {e}")
                 
     if not central_html:
         context.central_html = "<h1>Registration Successful! Thank you.</h1>"

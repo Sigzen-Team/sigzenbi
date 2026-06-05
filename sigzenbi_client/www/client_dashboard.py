@@ -2,7 +2,6 @@ import frappe
 import frappe.sessions
 from urllib.parse import unquote
 import requests
-import os
 
 def get_context(context):
     context.no_cache = 1
@@ -45,38 +44,26 @@ def get_context(context):
     context.plans_url = "/client_plans"
 
     central_html = ""
-    # Try filesystem first
-    local_path = "/home/parin/sigzen-central/apps/sigzenbi_central/sigzenbi_central/www/client_dashboard.html"
-    if os.path.exists(local_path):
+    # Fetch from HTTP
+    if base_url:
         try:
-            with open(local_path, "r", encoding="utf-8") as f:
-                central_html = f.read()
+            url = f"{base_url}api/method/sigzenbi_central.www.client_login.get_dashboard_template"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                try:
+                    central_html = response.json().get("message", response.text)
+                except Exception:
+                    central_html = response.text
         except Exception as e:
-            frappe.log_error(message=f"Error reading local central client_dashboard.html: {e}", title="client_dashboard")
-            
-    # Fallback to HTTP
-    # Fallback to HTTP
-    if not central_html:
-        if base_url:
-            try:
-                url = f"{base_url}api/method/sigzenbi_central.www.client_login.get_dashboard_template"
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    try:
-                        central_html = response.json().get("message", response.text)
-                    except Exception:
-                        central_html = response.text
-            except Exception as e:
-                frappe.log_error(message=f"Error fetching central client_dashboard.html: {e}", title="client_dashboard")
+            frappe.log_error(message=f"Error fetching central client_dashboard.html: {e}", title="client_dashboard")
                 
     if not central_html:
         context.central_html = "<h1>Could not load dashboard.</h1>"
     else:
         # Rewrite asset URLs to point to central server
         if base_url:
-            browser_base_url = base_url
-            if "192.168.1.12" in base_url:
-                browser_base_url = base_url.replace("192.168.1.12", "127.0.0.1")
+            from sigzenbi_client.utils import get_browser_base_url
+            browser_base_url = get_browser_base_url(base_url)
             central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
             central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
             central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')

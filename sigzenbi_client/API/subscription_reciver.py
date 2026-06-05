@@ -18,7 +18,10 @@ def subscription_reciver(
     user_email,
     user_id,
     password,
-    client_name
+    client_name,
+    sigzenbi_link=None,
+    central_app_url=None,
+    **kwargs
 ):  
     try:
         # Store subscription data in SigzenBI Subscription Settings (Single Doctype)
@@ -35,6 +38,11 @@ def subscription_reciver(
         frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "currency_vmhj", subscription_amount)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "licence_no", subscription_id)
+        if sigzenbi_link:
+            frappe.db.set_value("SigzenBI Subscription Settings", None, "sigzenbi_link", sigzenbi_link)
+        
+        if central_app_url:
+            frappe.db.set_value("SigzenBI Subscription Settings", None, "sigzenbi_erp_link", central_app_url)
 
         # Create or update user in SigzenBI Users with role Admin
         if frappe.db.exists("SigzenBI Users", {"user_id": user_id}):
