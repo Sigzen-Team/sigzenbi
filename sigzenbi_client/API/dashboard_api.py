@@ -26,7 +26,8 @@ def fetch_dashboards():
 
         API_URL = f"{base_url}api/method/sigzenbi_central.API.fetch_dashboards.fetch_dashboards"
         API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
+        from frappe.utils.password import get_decrypted_password
+        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
@@ -71,7 +72,8 @@ def get_superset_token(dashboard_id=None):
 
         TOKEN_URL = f"{base_url}api/method/sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token"
         API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
+        from frappe.utils.password import get_decrypted_password
+        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:

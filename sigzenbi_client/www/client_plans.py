@@ -25,6 +25,7 @@ def get_context(context):
     context.csrf_token = frappe.sessions.get_csrf_token()
 
     central_html = ""
+    fetch_error = "sigzenbi_erp_link is not configured in SigzenBI Subscription Settings."
     # Fetch from HTTP
     if base_url:
         try:
@@ -32,11 +33,21 @@ def get_context(context):
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 central_html = response.text
+                fetch_error = ""
+            else:
+                fetch_error = f"Central server returned HTTP status {response.status_code}"
+                frappe.log_error(
+                    title="client_plans",
+                    message=f"Failed to fetch central plans: HTTP {response.status_code}\n\nResponse Content:\n{response.text[:2000]}"
+                )
         except Exception as e:
+            fetch_error = str(e)
             frappe.log_error(title="client_plans", message=f"Error fetching central plans.html: {e}")
+    else:
+        frappe.log_error(title="client_plans", message="sigzenbi_erp_link is not configured in SigzenBI Subscription Settings.")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load subscription plans.</h1>"
+        context.central_html = f"<h1>Could not load subscription plans.</h1><p style='color: red; font-family: monospace;'>Error: {fetch_error}</p>"
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

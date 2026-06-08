@@ -22,7 +22,8 @@ def fetch_subscription_details(client_name):
 	
 	# Retrieve API credentials dynamically from Settings
 	api_key = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-	api_secret = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
+	from frappe.utils.password import get_decrypted_password
+	api_secret = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
 	
 	try:
 		response = requests.post(
