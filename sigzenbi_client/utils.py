@@ -52,3 +52,17 @@ def redirect_without_port(path):
     frappe.local.flags.redirect_location = path
     raise frappe.Redirect
 
+
+def rewrite_plans_link(html):
+    """
+    Rewrites central server plans paths (/plans and /plans/plans) to the client plans path (/client_plans)
+    """
+    if not html:
+        return html
+    html = html.replace('"/plans/plans"', '"/client_plans"')
+    html = html.replace("'/plans/plans'", "'/client_plans'")
+    html = html.replace('"/plans"', '"/client_plans"')
+    html = html.replace("'/plans'", "'/client_plans'")
+    return html
+
+

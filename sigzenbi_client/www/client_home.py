@@ -42,10 +42,8 @@ def get_context(context):
             central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
         # Redirect the plans button / link to our client plans page
-        central_html = central_html.replace('"/plans/plans"', '"/client_plans"')
-        central_html = central_html.replace("'/plans/plans'", "'/client_plans'")
-        central_html = central_html.replace('"/plans"', '"/client_plans"')
-        central_html = central_html.replace("'/plans'", "'/client_plans'")
+        from sigzenbi_client.utils import rewrite_plans_link
+        central_html = rewrite_plans_link(central_html)
         
         # Replace the central inquiry submit URL with client proxy URL
         central_html = central_html.replace('/api/method/sigzenbi_central.www.plans.plans.submit_inquiry', '/api/method/sigzenbi_client.www.proxy.submit_inquiry')

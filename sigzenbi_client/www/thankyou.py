@@ -60,6 +60,9 @@ def get_context(context):
             central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
             central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
 
+        from sigzenbi_client.utils import rewrite_plans_link
+        central_html = rewrite_plans_link(central_html)
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             context.central_html = frappe.render_template(central_html, context)

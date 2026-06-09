@@ -113,6 +113,9 @@ def get_context(context):
                     f'let matched = "{matched_entity_type}";'
                 )
 
+        from sigzenbi_client.utils import rewrite_plans_link
+        central_html = rewrite_plans_link(central_html)
+
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             context.central_html = frappe.render_template(central_html, context)

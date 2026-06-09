@@ -85,6 +85,8 @@ def get_context(context):
                 "sigzenbi_central.API.fetch_dashboards.fetch_dashboards",
                 context.api_fetch_dashboards_url
             )
+            from sigzenbi_client.utils import rewrite_plans_link
+            central_html = rewrite_plans_link(central_html)
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="client_dashboard", message=f"Error rendering central client_dashboard template: {e}")
