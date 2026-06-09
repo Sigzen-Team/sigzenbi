@@ -88,19 +88,8 @@ def get_superset_token(dashboard_id=None):
         res = requests.get(TOKEN_URL, headers=headers, cookies=cookies, params=params, timeout=15)
         res_json = res.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
-            
     except Exception as e:
         frappe.log_error(title="get_superset_token_client", message=f"Error in client get_superset_token: {str(e)}")
         return {"success": False, "message": str(e)}
 
-@frappe.whitelist()
-def get_errors():
-    from frappe.utils.password import get_decrypted_password
-    try:
-        secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
-        print("Decrypted API Secret:", secret)
-        print("Decrypted API Secret type:", type(secret))
-        print("Decrypted API Secret chars:", list(secret) if secret else '')
-    except Exception as e:
-        print("Error getting decrypted password:", str(e))
-    return "Done"
+
