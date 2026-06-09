@@ -30,9 +30,10 @@ class SigzenBIUsers(Document):
         else:
             password = get_decrypted_password("SigzenBI Users",self.user_name, "password").strip()
             
+        api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
         payload = {
             "api_key": settings.api_key,
-            "api_secret": settings.api_secret,
+            "api_secret": api_secret,
             "action": action,
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,
@@ -127,9 +128,10 @@ class SigzenBIUsers(Document):
             "user_name"
         )
                 
+        api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
         payload = {
             "api_key": settings.api_key,
-            "api_secret": settings.api_secret,
+            "api_secret": api_secret,
             "action": "delete",
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,

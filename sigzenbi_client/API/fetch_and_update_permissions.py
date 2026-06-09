@@ -28,7 +28,8 @@ def fetch_and_update_permissions():
         # API configuration
         API_URL = f"{base_url}api/method/sigzenbi_central.API.send_permissions.send_permissions"
         API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
+        from frappe.utils.password import get_decrypted_password
+        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"token {API_KEY}:{API_SECRET}",

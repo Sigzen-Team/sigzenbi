@@ -88,7 +88,8 @@ def get_superset_token(dashboard_id=None):
         res = requests.get(TOKEN_URL, headers=headers, cookies=cookies, params=params, timeout=15)
         res_json = res.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
-            
     except Exception as e:
         frappe.log_error(title="get_superset_token_client", message=f"Error in client get_superset_token: {str(e)}")
         return {"success": False, "message": str(e)}
+
+

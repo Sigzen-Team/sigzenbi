@@ -6,8 +6,8 @@ def get_context(context):
     # Ensure client has activated the plan
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')
     if status != "Active":
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 
@@ -40,6 +40,9 @@ def get_context(context):
             central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
             central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
             central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+
+        from sigzenbi_client.utils import rewrite_plans_link
+        central_html = rewrite_plans_link(central_html)
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:

@@ -8,8 +8,8 @@ def get_context(context):
     settings = frappe.get_single("SigzenBI Subscription Settings")
     status = settings.subscription_status
     if status != "Active":
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
     client_name = settings.client_name
     base_url = settings.sigzenbi_erp_link or ''
@@ -33,8 +33,8 @@ def get_context(context):
             frappe.log_error(title="thankyou", message=f"Error checking database credentials registration status: {e}")
 
     if not db_registered:
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
 
 
@@ -59,6 +59,9 @@ def get_context(context):
             central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
             central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
             central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+
+        from sigzenbi_client.utils import rewrite_plans_link
+        central_html = rewrite_plans_link(central_html)
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
