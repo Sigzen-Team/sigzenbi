@@ -6,8 +6,8 @@ def get_context(context):
     # Ensure client has activated the plan
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')
     if status != "Active":
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 

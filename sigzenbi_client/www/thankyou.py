@@ -8,8 +8,8 @@ def get_context(context):
     settings = frappe.get_single("SigzenBI Subscription Settings")
     status = settings.subscription_status
     if status != "Active":
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
     client_name = settings.client_name
     base_url = settings.sigzenbi_erp_link or ''
@@ -33,8 +33,8 @@ def get_context(context):
             frappe.log_error(title="thankyou", message=f"Error checking database credentials registration status: {e}")
 
     if not db_registered:
-        frappe.local.flags.redirect_location = "/register/register"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/register/register")
 
 
 

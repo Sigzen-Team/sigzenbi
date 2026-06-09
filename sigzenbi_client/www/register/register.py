@@ -20,6 +20,49 @@ def get_context(context):
         base_url += '/'
     context.central_url = base_url
 
+    # Dynamic prefill matching logic for any custom plan
+    matched_entity_type = ""
+    selected_plan = frappe.form_dict.get("plan")
+    if selected_plan and base_url:
+        try:
+            # Fetch plans list from central
+            plans_url = f"{base_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
+            plans_res = requests.post(plans_url, timeout=10)
+            plans_data = plans_res.json()
+            if plans_data.get("message", {}).get("status") == "success":
+                plans_list = plans_data["message"].get("subscription_plan", [])
+                
+                # Normalize selected plan name (e.g. "partnership_firm" -> "partnership firm")
+                norm_selected = selected_plan.lower().replace("_", " ").strip()
+                
+                # Find matching plan doc
+                matched_plan = None
+                for plan in plans_list:
+                    plan_name = plan.get("name", "").lower().strip()
+                    if plan_name == norm_selected or plan_name.replace(" ", "_") == norm_selected:
+                        matched_plan = plan
+                        break
+                
+                if matched_plan:
+                    plan_name_lower = matched_plan.get("name", "").lower()
+                    custom_no_of_users = matched_plan.get("custom_no_of_users") or 0
+                    
+                    partnership_kws = ["partnership", "partner", "joint", "associate", "associates", "llp", "collab", "firm"]
+                    company_kws = ["company", "enterprise", "corporate", "corporation", "business", "organization", "group", "team", "ltd", "inc", "agency", "commercial", "unlimited", "suite", "co", "elite", "platinum", "gold", "growth", "multi", "sme", "smb", "startup"]
+                    
+                    if custom_no_of_users > 1:
+                        if any(kw in plan_name_lower for kw in partnership_kws):
+                            matched_entity_type = "Partnership"
+                        else:
+                            matched_entity_type = "Company"
+                    else:
+                        if any(kw in plan_name_lower for kw in company_kws):
+                            matched_entity_type = "Company"
+                        else:
+                            matched_entity_type = "Individual"
+        except Exception as e:
+            frappe.log_error(title="register_prefill_matching_error", message=f"Prefill matching failed: {e}")
+
     context.csrf_token = frappe.sessions.get_csrf_token()
 
     # Pass the local/proxy API URLs to central's register.html so they are called relative to client
@@ -58,6 +101,17 @@ def get_context(context):
                 "'/api/method/sigzenbi_central.API.fetch_client_subscription.fetch_client_subscription'",
                 "'{{ api_fetch_subscription_url }}'"
             )
+            # Expand keyword matching for auto-selecting Entity Type
+            central_html = central_html.replace(
+                "const companyKeywords = ['company',",
+                "const companyKeywords = ['sme', 'smb', 'startup', 'company',"
+            )
+            # Inject server-side resolved matched entity type
+            if matched_entity_type:
+                central_html = central_html.replace(
+                    'let matched = "";',
+                    f'let matched = "{matched_entity_type}";'
+                )
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:

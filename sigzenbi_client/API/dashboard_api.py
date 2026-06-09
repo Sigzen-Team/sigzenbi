@@ -26,8 +26,7 @@ def fetch_dashboards():
 
         API_URL = f"{base_url}api/method/sigzenbi_central.API.fetch_dashboards.fetch_dashboards"
         API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        from frappe.utils.password import get_decrypted_password
-        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
+        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
@@ -72,8 +71,7 @@ def get_superset_token(dashboard_id=None):
 
         TOKEN_URL = f"{base_url}api/method/sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token"
         API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        from frappe.utils.password import get_decrypted_password
-        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
+        API_SECRET = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
@@ -94,3 +92,15 @@ def get_superset_token(dashboard_id=None):
     except Exception as e:
         frappe.log_error(title="get_superset_token_client", message=f"Error in client get_superset_token: {str(e)}")
         return {"success": False, "message": str(e)}
+
+@frappe.whitelist()
+def get_errors():
+    from frappe.utils.password import get_decrypted_password
+    try:
+        secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
+        print("Decrypted API Secret:", secret)
+        print("Decrypted API Secret type:", type(secret))
+        print("Decrypted API Secret chars:", list(secret) if secret else '')
+    except Exception as e:
+        print("Error getting decrypted password:", str(e))
+    return "Done"

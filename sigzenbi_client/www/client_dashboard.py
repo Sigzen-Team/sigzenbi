@@ -18,8 +18,8 @@ def get_context(context):
     
     # Redirect to client_login if not logged in via client_login.html
     if not client_user:
-        frappe.local.flags.redirect_location = "/client_login"
-        raise frappe.Redirect
+        from sigzenbi_client.utils import redirect_without_port
+        redirect_without_port("/client_login")
 
     user = client_user
 
