@@ -3,6 +3,15 @@ import frappe
 def create_default_permissions_and_roles():
     create_permission_client()
     create_role_client()
+    set_default_subscription_settings()
+
+def set_default_subscription_settings():
+    # Set default values for the SigzenBI Subscription Settings
+    frappe.db.set_value("SigzenBI Subscription Settings", None, {
+        "sigzenbi_link": "http://192.168.1.135:8088/",
+        "sigzenbi_erp_link": "http://192.168.1.135:8007/"
+    })
+    frappe.db.commit()
 
 def create_permission_client():
     # Check if the permission already exists
