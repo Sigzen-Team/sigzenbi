@@ -196,7 +196,6 @@
    "read_only": 1
   },
   {
-   "default": "http://172.22.206.232:8004/",
    "fieldname": "sigzenbi_link_section",
    "fieldtype": "Section Break",
    "label": "SigzenBI Link"

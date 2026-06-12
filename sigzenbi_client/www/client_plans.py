@@ -1,21 +1,26 @@
 import frappe
 import frappe.sessions
 import requests
+import json
 
 def get_context(context):
-    base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
-    if base_url and not base_url.endswith('/'):
-        base_url += '/'
-    context.central_url = base_url
+    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central-domain.com"
+    if central_url and not central_url.endswith('/'):
+        central_url += '/'
+    context.central_url = central_url
     context.register_url = "/register/register"
 
+    api_url = f"{central_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
+    
     # Fetch plans from central API
     try:
-        url = f"{base_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
-        response = requests.post(url, timeout=10)
-        data = response.json()
-        if data.get("message", {}).get("status") == "success":
-            context.subscription_plans = data["message"]["subscription_plan"]
+        response = requests.get(api_url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("message", {}).get("status") == "success":
+                context.subscription_plans = data["message"]["subscription_plan"]
+            else:
+                context.subscription_plans = []
         else:
             context.subscription_plans = []
     except Exception as e:
@@ -23,13 +28,14 @@ def get_context(context):
         context.subscription_plans = []
 
     context.csrf_token = frappe.sessions.get_csrf_token()
+    context.subscription_plans_json = json.dumps(context.subscription_plans)
 
     central_html = ""
     fetch_error = "sigzenbi_erp_link is not configured in SigzenBI Subscription Settings."
     # Fetch from HTTP
-    if base_url:
+    if central_url:
         try:
-            url = f"{base_url}plans/plans"
+            url = f"{central_url}plans/plans"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 central_html = response.text
@@ -50,9 +56,9 @@ def get_context(context):
         context.central_html = f"<h1>Could not load subscription plans.</h1><p style='color: red; font-family: monospace;'>Error: {fetch_error}</p>"
     else:
         # Rewrite asset URLs to point to central server
-        if base_url:
+        if central_url:
             from sigzenbi_client.utils import get_browser_base_url
-            browser_base_url = get_browser_base_url(base_url)
+            browser_base_url = get_browser_base_url(central_url)
             central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
             central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
             central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')
@@ -76,6 +82,51 @@ def get_context(context):
 
         from sigzenbi_client.utils import rewrite_plans_link
         central_html = rewrite_plans_link(central_html)
+
+        # Inject JavaScript to dynamically override the static hardcoded plans container in the browser
+        js_script = """
+  <script>
+  document.addEventListener("DOMContentLoaded", function() {
+      const plans = {{ subscription_plans_json | safe }};
+      if (plans && plans.length > 0) {
+          const container = document.querySelector('.plans-container');
+          if (container) {
+              container.innerHTML = '';
+              plans.forEach(plan => {
+                  const isPopular = plan.name.toLowerCase() === 'pqr';
+                  const planCard = document.createElement('div');
+                  planCard.className = `plan-card ${isPopular ? 'popular' : ''}`;
+                  
+                  let badgeHtml = '';
+                  if (isPopular) {
+                      badgeHtml = '<div class="popular-badge">Most Popular</div>';
+                  }
+                  
+                  planCard.innerHTML = `
+                      ${badgeHtml}
+                      <h3>${plan.name}</h3>
+                      <div class="price-box">
+                          <div class="price"><span class="currency">₹</span>${plan.cost}</div>
+                          <div class="interval">per ${plan.billing_interval.toLowerCase()}</div>
+                      </div>
+                      <ul>
+                          <li><i class="fas fa-check-circle"></i> Up to ${plan.custom_no_of_users} user${plan.custom_no_of_users !== 1 ? 's' : ''}</li>
+                          <li><i class="fas fa-check-circle"></i> ${plan.price_determination} Pricing</li>
+                          <li><i class="fas fa-check-circle"></i> All Premium Dashboards</li>
+                          <li><i class="fas fa-check-circle"></i> ERPNext Integration</li>
+                          <li><i class="fas fa-check-circle"></i> 24/7 Priority Support</li>
+                          <li><i class="fas fa-check-circle"></i> Secure Cloud Hosting</li>
+                      </ul>
+                      <a href="/register/register?plan=${plan.name.toLowerCase().replace(/ /g, '_')}" class="button">Select This Plan</a>
+                  `;
+                  container.appendChild(planCard);
+              });
+          }
+      }
+  });
+  </script>
+  """
+        central_html += js_script
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:

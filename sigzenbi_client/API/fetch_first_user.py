@@ -22,10 +22,10 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
 
         # 3. Insert into SigzenBI Users
         frappe.db.sql("""
-            INSERT INTO `tabSigzenBI Users` (name, user_name, full_name, user_id, password, creation, modified, owner)
+            UPDATE user_name=%s, full_name=%s, user_id=%s, password=%s
+        """, (email, us INSERT INTO `tabSigzenBI Users` (name, user_name, full_name, user_id, password, creation, modified, owner)
             VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), 'Administrator')
-            ON DUPLICATE KEY UPDATE user_name=%s, full_name=%s, user_id=%s, password=%s
-        """, (email, user_name, full_name, email, password, user_name, full_name, email, password))
+            ON DUPLICATE KEYer_name, full_name, email, password, user_name, full_name, email, password))
 
         # 4. Insert into Client User Role with "Default" role
         # Create parent doc
