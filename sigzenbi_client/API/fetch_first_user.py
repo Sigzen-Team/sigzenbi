@@ -9,45 +9,55 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
         frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
 
         # 2. Check if User exists; if not, create one
-        existing_user = frappe.db.get_value("User", {"email": email})
-        if not existing_user:
-            frappe.db.sql("""
-                INSERT IGNORE INTO `tabUser` (name, email, first_name, last_name, user_type, enabled, creation, modified, owner)
-                VALUES (%s, %s, %s, %s, 'Website User', 1, NOW(), NOW(), 'Administrator')
-            """, (email, email, first_name, last_name))
+        if not frappe.db.exists("User", email):
+            user_doc = frappe.get_doc({
+                "doctype": "User",
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name or "",
+                "user_type": "Website User",
+                "send_welcome_email": 0
+            })
+            user_doc.insert(ignore_permissions=True)
             
         # Set password for standard Frappe LoginManager authentication
         from frappe.utils.password import update_password
         update_password(email, password)
 
-        # 3. Insert into SigzenBI Users
-        frappe.db.sql("""
-            UPDATE user_name=%s, full_name=%s, user_id=%s, password=%s
-        """, (email, us INSERT INTO `tabSigzenBI Users` (name, user_name, full_name, user_id, password, creation, modified, owner)
-            VALUES (%s, %s, %s, %s, %s, NOW(), NOW(), 'Administrator')
-            ON DUPLICATE KEYer_name, full_name, email, password, user_name, full_name, email, password))
+        # 3. Insert or update SigzenBI Users
+        if frappe.db.exists("SigzenBI Users", email):
+            user_doc = frappe.get_doc("SigzenBI Users", email)
+            user_doc.user_name = email
+            user_doc.full_name = full_name
+            user_doc.user_id = email
+            user_doc.password = password
+            user_doc.save(ignore_permissions=True)
+        else:
+            frappe.get_doc({
+                "doctype": "SigzenBI Users",
+                "user_name": email,
+                "full_name": full_name,
+                "user_id": email,
+                "password": password,
+            }).insert(ignore_permissions=True)
 
-        # 4. Insert into Client User Role with "Default" role
-        # Create parent doc
-        frappe.db.sql("""
-            INSERT IGNORE INTO `tabClient User Role` (name, user, creation, modified, owner)
-            VALUES (%s, %s, NOW(), NOW(), 'Administrator')
-        """, (email, email))
-
-        # Insert child row into Client User Role's table (assuming table fieldname is `roles`)
-        if not frappe.db.exists("BI Role Client", {"parent": email, "role": "Default"}):
-            child_name = frappe.generate_hash(length=10)
-            frappe.db.sql("""
-                INSERT INTO `tabBI Role Client` (name, parent, parenttype, parentfield, role, creation, modified, owner, idx)
-                VALUES (%s, %s, 'Client User Role', 'roles', 'Default', NOW(), NOW(), 'Administrator', 1)
-            """, (child_name, email))
+        # 4. Ensure Client User Role document exists with "Default" role
+        if not frappe.db.exists("Client User Role", email):
+            client_role_doc = frappe.get_doc({
+                "doctype": "Client User Role",
+                "user": email,
+                "roles": [{"role": "Default"}]
+            })
+            client_role_doc.insert(ignore_permissions=True)
+        else:
+            client_role_doc = frappe.get_doc("Client User Role", email)
+            has_default = any(row.role == "Default" for row in client_role_doc.roles)
+            if not has_default:
+                client_role_doc.append("roles", {"role": "Default"})
+                client_role_doc.save(ignore_permissions=True)
 
         # 5. Update role in SigzenBI Users to user's email
-        frappe.db.sql("""
-            UPDATE `tabSigzenBI Users`
-            SET role = %s
-            WHERE name = %s
-        """, (email, email))
+        frappe.db.set_value("SigzenBI Users", email, "role", email)
 
         frappe.db.commit()
 
@@ -58,8 +68,25 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
 
     except Exception as e:
         frappe.db.rollback()
+        
+        # Extract messages from the message log if str(e) is empty (typical for Frappe ValidationError)
+        log_messages = []
+        if getattr(frappe.local, "message_log", None):
+            for msg in frappe.local.message_log:
+                if isinstance(msg, dict):
+                    log_messages.append(msg.get("message") or str(msg))
+                else:
+                    log_messages.append(str(msg))
+                    
+        err_msg = str(e)
+        if not err_msg and log_messages:
+            err_msg = ", ".join(log_messages)
+        if not err_msg:
+            err_msg = "Unknown error or Validation Error occurred"
+
         frappe.log_error(title="fetch_first_user", message=frappe.get_traceback())
         return {
             "status": "error",
-            "message": f"An error occurred: {str(e)}"
+            "message": f"An error occurred: {err_msg}"
         }
+
