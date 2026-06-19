@@ -4,6 +4,7 @@ def create_default_permissions_and_roles():
     create_permission_client()
     create_role_client()
     set_default_subscription_settings()
+    setup_gateway_secret()
 
 def set_default_subscription_settings():
     # Set default values for the SigzenBI Subscription Settings
@@ -12,6 +13,14 @@ def set_default_subscription_settings():
         "sigzenbi_erp_link": "http://192.168.1.135:8007/"
     })
     frappe.db.commit()
+
+def setup_gateway_secret():
+    # TODO(security): This secret is hardcoded per user's explicit request. 
+    # Storing secrets in code is insecure. For production, generate unique random secrets.
+    static_secret = "nnF_K9uIAmSugzGO9pFQjjr6nEQNky8aDnSjxJyrpHM"
+    if not frappe.conf.get("sigzen_gateway_shared_secret"):
+        from frappe.installer import update_site_config
+        update_site_config("sigzen_gateway_shared_secret", static_secret)
 
 def create_permission_client():
     # Check if the permission already exists
