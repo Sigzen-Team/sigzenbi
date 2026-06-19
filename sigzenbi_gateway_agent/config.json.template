@@ -1,0 +1,13 @@
+{
+    "site": "sigzenbi",
+    "bench_path": "/home/avsar/nishu-bench",
+    "gateway": {
+        "ping_interval_seconds": 30,
+        "reconnect_delay_seconds": 5
+    },
+    "logging": {
+        "level": "INFO",
+        "log_to_file": true,
+        "log_file_path": "gateway_agent.log"
+    }
+}

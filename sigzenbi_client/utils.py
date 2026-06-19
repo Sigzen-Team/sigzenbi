@@ -66,3 +66,50 @@ def rewrite_plans_link(html):
     return html
 
 
+def get_client_url_and_port():
+    """
+    Resolves the client's public/access URL and port dynamically.
+    Returns: (client_url, client_site_port)
+    """
+    client_url = None
+    client_port = None
+
+    # 1. Try from request headers/host
+    if getattr(frappe.local, "request", None):
+        try:
+            scheme = frappe.get_request_header("X-Forwarded-Proto") or frappe.request.scheme or "http"
+            host = frappe.request.host
+            client_url = f"{scheme}://{host}"
+            if ":" in host:
+                client_port = host.split(":")[-1]
+            else:
+                client_port = "443" if scheme == "https" else "80"
+        except Exception:
+            pass
+
+    # 2. Try from site_config host_name
+    if not client_url and frappe.conf.host_name:
+        client_url = frappe.conf.host_name
+        try:
+            parsed = urlparse(client_url)
+            client_port = parsed.port or ("443" if parsed.scheme == "https" else "80")
+        except Exception:
+            pass
+
+    # 3. Fallback to standard get_url()
+    if not client_url:
+        from frappe.utils import get_url
+        client_url = get_url()
+        try:
+            parsed = urlparse(client_url)
+            client_port = parsed.port or ("443" if parsed.scheme == "https" else "80")
+        except Exception:
+            pass
+
+    # 4. Default fallback if parsing failed
+    if not client_port:
+        client_port = "80"
+
+    return client_url, str(client_port)
+
+

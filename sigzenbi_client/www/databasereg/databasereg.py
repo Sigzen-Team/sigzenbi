@@ -3,6 +3,56 @@ import frappe
 import frappe.sessions
 import requests
 import json
+import re
+
+
+def _get_client_site_db_config():
+	"""Database credentials from this client bench site (sites/<site>/site_config.json)."""
+	return {
+		"db_host": frappe.conf.get("db_host") or "127.0.0.1",
+		"db_name": frappe.conf.db_name,
+		"db_user": frappe.conf.get("db_user") or frappe.conf.db_name,
+		"db_password": frappe.conf.db_password,
+	}
+
+
+def _inject_client_db_fields(html):
+	"""Replace central pre-rendered DB inputs with this client site's credentials."""
+	field_map = {
+		"db_host": "{{ auto_db_host }}",
+		"db_name": "{{ auto_db_name }}",
+		"db_user": "{{ auto_db_user }}",
+		"db_password": "{{ auto_db_password }}",
+	}
+	for field, jinja_value in field_map.items():
+		html = re.sub(
+			rf'(<input[^>]*name="{field}"[^>]*value=")[^"]*(")',
+			rf"\1{jinja_value}\2",
+			html,
+			count=1,
+			flags=re.IGNORECASE | re.DOTALL,
+		)
+	return html
+
+
+def _rewrite_database_api_url(html, base_url, browser_base_url, client_api_url):
+	"""Point form submit to client proxy, not central (avoids CORS + wrong DB)."""
+	central_api_suffix = "api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
+	paths = [
+		f"'/{central_api_suffix}'",
+		f'"/{central_api_suffix}"',
+		f"'{base_url}{central_api_suffix}'",
+		f'"{base_url}{central_api_suffix}"',
+	]
+	if browser_base_url != base_url:
+		paths.extend([
+			f"'{browser_base_url}{central_api_suffix}'",
+			f'"{browser_base_url}{central_api_suffix}"',
+		])
+	for central_path in paths:
+		html = html.replace(central_path, f"'{client_api_url}'")
+	return html
+
 
 def get_context(context):
     # Ensure client has activated the plan
@@ -18,11 +68,12 @@ def get_context(context):
 
 
     
-    # Auto-fetch client database credentials from frappe.conf
-    context.auto_db_name = frappe.conf.db_name
-    context.auto_db_password = frappe.conf.db_password
-    context.auto_db_host = frappe.conf.db_host or '127.0.0.1'
-    context.auto_db_user = frappe.conf.db_name
+    # Auto-fetch from this client site's site_config.json (e.g. sites/sigzenbi/site_config.json)
+    db_config = _get_client_site_db_config()
+    context.auto_db_name = db_config["db_name"]
+    context.auto_db_password = db_config["db_password"]
+    context.auto_db_host = db_config["db_host"]
+    context.auto_db_user = db_config["db_user"]
 
     context.csrf_token = frappe.sessions.get_csrf_token()
     context.api_get_database_credentials_url = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_database_credentials"
@@ -52,10 +103,11 @@ def get_context(context):
             central_html = central_html.replace('url("/assets/', f'url("{browser_base_url}assets/')
             central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
             
-            # Rewrite hardcoded API endpoints to use Jinja tags
-            central_html = central_html.replace(
-                "'/api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials'",
-                "'{{ api_get_database_credentials_url }}'"
+            central_html = _rewrite_database_api_url(
+                central_html,
+                base_url,
+                browser_base_url,
+                context.api_get_database_credentials_url,
             )
             
             # Rewrite redirect to /thanks to /thankyou for the client app
@@ -70,6 +122,7 @@ def get_context(context):
 
         from sigzenbi_client.utils import rewrite_plans_link
         central_html = rewrite_plans_link(central_html)
+        central_html = _inject_client_db_fields(central_html)
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
@@ -148,6 +201,12 @@ def get_database_credentials(**kwargs):
         
         # Pop cmd to avoid central routing conflicts
         kwargs.pop("cmd", None)
+
+        # Retrieve and inject dynamic client site URL and port
+        from sigzenbi_client.utils import get_client_url_and_port
+        client_url, client_port = get_client_url_and_port()
+        kwargs["client_url"] = client_url
+        kwargs["client_site_port"] = client_port
         
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
         response = requests.post(url, json=kwargs, timeout=20)

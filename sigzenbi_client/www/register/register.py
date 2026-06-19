@@ -185,6 +185,13 @@ def get_client_credentials(**kwargs):
             base_url += '/'
         
         kwargs.pop("cmd", None)
+
+        # Retrieve and inject dynamic client site URL and port
+        from sigzenbi_client.utils import get_client_url_and_port
+        client_url, client_port = get_client_url_and_port()
+        kwargs["client_url"] = client_url
+        kwargs["client_site_port"] = client_port
+
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_client_credentials.get_client_credentials"
         response = requests.post(url, json=kwargs, timeout=120)
         
@@ -204,6 +211,23 @@ def get_client_credentials(**kwargs):
                 settings.api_secret = api_secret
             settings.save(ignore_permissions=True)
             frappe.db.commit()
+
+            # Automatically log in the user on the central server to establish a session
+            try:
+                login_url = f"{base_url}api/method/login"
+                login_res = requests.post(login_url, json={"usr": kwargs.get("email"), "pwd": kwargs.get("password")}, timeout=10)
+                if login_res.status_code == 200:
+                    # Extract the non-Guest sid cookie
+                    central_sid = None
+                    for cookie in login_res.cookies:
+                        if cookie.name == "sid" and cookie.value != "Guest":
+                            central_sid = cookie.value
+                            break
+                    if central_sid:
+                        frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax")
+                        frappe.local.cookie_manager.set_cookie("client_session_user", kwargs.get("email"), httponly=True, samesite="Lax")
+            except Exception as login_e:
+                frappe.log_error(title="auto_login_error", message=str(login_e))
             
         return parsed
     except Exception as e:
@@ -219,6 +243,13 @@ def fetch_client_subscription(**kwargs):
             base_url += '/'
         
         kwargs.pop("cmd", None)
+
+        # Retrieve and inject dynamic client site URL and port
+        from sigzenbi_client.utils import get_client_url_and_port
+        client_url, client_port = get_client_url_and_port()
+        kwargs["client_url"] = client_url
+        kwargs["client_site_port"] = client_port
+
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_client_subscription.fetch_client_subscription"
         response = requests.post(url, json=kwargs, timeout=120)
         

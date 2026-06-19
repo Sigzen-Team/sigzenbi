@@ -42,10 +42,32 @@ def get_context(context):
     # Fetch from HTTP
     if base_url:
         try:
+            # Retrieve session cookies from user request
+            client_user = None
+            central_sid = None
+            if getattr(frappe.local, "request", None):
+                try:
+                    from urllib.parse import unquote
+                    client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+                    central_sid = frappe.request.cookies.get("central_sid")
+                    frappe.log_error(title="thankyou_debug", message=f"client_user={client_user}, central_sid={central_sid}, cookies={dict(frappe.request.cookies)}")
+                except Exception:
+                    pass
+
+            cookies = {}
+            if central_sid:
+                cookies["sid"] = central_sid
+            if client_user:
+                cookies["client_session_user"] = client_user
+
             url = f"{base_url}thanks"
-            response = requests.get(url, timeout=50, allow_redirects=False)
+            response = requests.get(url, cookies=cookies, timeout=50, allow_redirects=True)
             if response.status_code == 200:
-                central_html = response.text
+                # Ensure we did not get redirected to the login or database registration page
+                if "/client_login" not in response.url and "/login" not in response.url and "databasereg" not in response.url:
+                    central_html = response.text
+                else:
+                    frappe.log_error(title="thankyou", message=f"Fetch redirected to login/registration page: {response.url}")
         except Exception as e:
             frappe.log_error(title="thankyou", message=f"Error fetching central thanks.html: {e}")
                 
@@ -54,11 +76,13 @@ def get_context(context):
     else:
         # Rewrite asset URLs to point to central server
         if base_url:
-            central_html = central_html.replace('"/assets/', f'"{base_url}assets/')
-            central_html = central_html.replace("'/assets/", f"'{base_url}assets/")
-            central_html = central_html.replace('url(/assets/', f'url({base_url}assets/')
-            central_html = central_html.replace('url("/assets/', f'url("{base_url}assets/')
-            central_html = central_html.replace("url('/assets/", f"url('{base_url}assets/")
+            from sigzenbi_client.utils import get_browser_base_url
+            browser_base_url = get_browser_base_url(base_url)
+            central_html = central_html.replace('"/assets/', f'"{browser_base_url}assets/')
+            central_html = central_html.replace("'/assets/", f"'{browser_base_url}assets/")
+            central_html = central_html.replace('url(/assets/', f'url({browser_base_url}assets/')
+            central_html = central_html.replace('url("/assets/', f'url("{browser_base_url}assets/')
+            central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
         from sigzenbi_client.utils import rewrite_plans_link
         central_html = rewrite_plans_link(central_html)
