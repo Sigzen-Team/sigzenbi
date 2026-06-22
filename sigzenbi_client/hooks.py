@@ -149,23 +149,11 @@ after_install = "sigzenbi_client.after_install.after_install.create_default_perm
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"sigzenbi_client.tasks.all"
-# 	],
-# 	"daily": [
-# 		"sigzenbi_client.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"sigzenbi_client.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"sigzenbi_client.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"sigzenbi_client.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"all": [
+		"sigzenbi_client.API.gateway.poll_jobs.check_and_start_polling_loop"
+	],
+}
 
 # Testing
 # -------

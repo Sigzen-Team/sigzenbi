@@ -86,8 +86,16 @@ def get_superset_token(dashboard_id=None):
             "Authorization": f"token {API_KEY}:{API_SECRET}"
         }
 
-        params = {"dashboard_id": dashboard_id, "user_email": user_email}
-        res = requests.get(TOKEN_URL, headers=headers, cookies=cookies, params=params, timeout=15)
+        # Compute Frappe User Permissions → RLS clauses locally (no reverse HTTP call needed)
+        rls_clauses = {}
+        try:
+            from sigzenbi_client.API.rls.get_user_rls_clauses import compute_rls_clauses
+            rls_clauses = compute_rls_clauses(user_email)
+        except Exception:
+            frappe.log_error(title="get_superset_token: RLS computation", message=frappe.get_traceback())
+
+        payload = {"dashboard_id": dashboard_id, "user_email": user_email, "rls_clauses": rls_clauses}
+        res = requests.post(TOKEN_URL, headers=headers, cookies=cookies, json=payload, timeout=15)
         res_json = res.json()
         return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
     except Exception as e:

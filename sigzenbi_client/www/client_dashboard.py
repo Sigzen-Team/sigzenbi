@@ -87,6 +87,32 @@ def get_context(context):
             )
             from sigzenbi_client.utils import rewrite_plans_link
             central_html = rewrite_plans_link(central_html)
+
+            # PWA: inject manifest link pointing to THIS client site (not Central).
+            # Done after asset URL rewriting so the /assets/sigzenbi_client/ path
+            # is NOT prefixed with the central server URL.
+            pwa_head = (
+                '<link rel="manifest" href="/assets/sigzenbi_client/manifest.json">\n'
+            )
+            central_html = central_html.replace("</head>", pwa_head + "</head>", 1)
+
+            # PWA: inject service worker registration just before </body>.
+            sw_script = (
+                '<script>\n'
+                'if ("serviceWorker" in navigator) {\n'
+                '    window.addEventListener("load", function () {\n'
+                '        navigator.serviceWorker.register(\n'
+                '            "/api/method/sigzenbi_client.API.pwa.service_worker",\n'
+                '            { scope: "/" }\n'
+                '        ).catch(function (e) {\n'
+                '            console.warn("[SigzenBI] SW registration failed:", e);\n'
+                '        });\n'
+                '    });\n'
+                '}\n'
+                '</script>\n'
+            )
+            central_html = central_html.replace("</body>", sw_script + "</body>", 1)
+
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="client_dashboard", message=f"Error rendering central client_dashboard template: {e}")
