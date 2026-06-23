@@ -71,7 +71,7 @@ class SigzenBIUsers(Document):
         """Update user count and sync with central server after insertion."""
         settings = frappe.get_single("SigzenBI Subscription Settings")
         settings.current_users = frappe.db.count("SigzenBI Users")
-        settings.save()
+        settings.save(ignore_permissions=True)
         if not frappe.db.exists("Client User Role", self.user_name):
             doc = frappe.get_doc({
             "doctype": "Client User Role",
@@ -160,7 +160,7 @@ class SigzenBIUsers(Document):
 
         # Now update user count (subtract 1)
         settings.current_users = frappe.db.count("SigzenBI Users") - 1
-        settings.save()
+        settings.save(ignore_permissions=True)
         
 def sync_role(user_name):
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')

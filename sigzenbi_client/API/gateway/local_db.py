@@ -1,4 +1,6 @@
 import re
+from datetime import date, datetime
+from decimal import Decimal
 
 import frappe
 
@@ -51,6 +53,20 @@ def get_db_config():
 	}
 
 
+def _to_json_safe(val):
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    if isinstance(val, Decimal):
+        return float(val)
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return val
+
+
+def _sanitize_rows(rows):
+    return [[_to_json_safe(cell) for cell in row] for row in rows]
+
+
 def _normalize_params(params):
 	if params is None or params == "":
 		return {}
@@ -95,7 +111,7 @@ def _execute_via_frappe(sql, query_params):
 			if frappe.db._cursor.description
 			else []
 		)
-		return True, columns, [list(row) for row in rows], None
+		return True, columns, _sanitize_rows(rows), None
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
 		return False, [], [], str(exc)
@@ -122,7 +138,7 @@ def _execute_via_pymysql(sql, query_params, config):
 			cursor.execute(sql, query_params)
 			rows = cursor.fetchall()
 			columns = [desc[0] for desc in cursor.description] if cursor.description else []
-		return True, columns, [list(row) for row in rows], None
+		return True, columns, _sanitize_rows(rows), None
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
 		return False, [], [], str(exc)

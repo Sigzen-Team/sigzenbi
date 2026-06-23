@@ -23,6 +23,7 @@ def _inject_client_db_fields(html):
 		"db_name": "{{ auto_db_name }}",
 		"db_user": "{{ auto_db_user }}",
 		"db_password": "{{ auto_db_password }}",
+		"client_name": "{{ auto_client_name }}",
 	}
 	for field, jinja_value in field_map.items():
 		html = re.sub(
@@ -74,6 +75,9 @@ def get_context(context):
     context.auto_db_password = db_config["db_password"]
     context.auto_db_host = db_config["db_host"]
     context.auto_db_user = db_config["db_user"]
+
+    # Auto-fill client name from subscription settings so the user doesn't have to type it
+    context.auto_client_name = frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name') or ''
 
     context.csrf_token = frappe.sessions.get_csrf_token()
     context.api_get_database_credentials_url = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_database_credentials"

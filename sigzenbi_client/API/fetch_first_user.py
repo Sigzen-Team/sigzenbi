@@ -6,7 +6,11 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
         full_name = f"{first_name} {last_name}"
 
         # 1. Set client name in SigzenBI Subscription Settings (Single DocType)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
+        frappe.db.sql(
+            "INSERT INTO tabSingles (doctype, field, value) VALUES (%s, 'client_name', %s) "
+            "ON DUPLICATE KEY UPDATE value=%s",
+            ["SigzenBI Subscription Settings", client_name, client_name]
+        )
 
         # 2. Check if User exists; if not, create one
         if not frappe.db.exists("User", email):
@@ -57,7 +61,10 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
                 client_role_doc.save(ignore_permissions=True)
 
         # 5. Update role in SigzenBI Users to user's email
-        frappe.db.set_value("SigzenBI Users", email, "role", email)
+        frappe.db.sql(
+            "UPDATE `tabSigzenBI Users` SET role=%s WHERE name=%s",
+            [email, email]
+        )
 
         frappe.db.commit()
 
