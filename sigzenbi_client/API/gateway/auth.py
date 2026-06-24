@@ -1,3 +1,5 @@
+import hmac
+
 import frappe
 
 
@@ -9,12 +11,12 @@ def _configured_client_name():
 
 
 def validate_secret(secret):
-	"""Return (ok, error_message). Shared secret is required when the gateway is enabled."""
+	"""Return (ok, error_message). Shared secret is required; comparison is constant-time."""
 	expected = frappe.conf.get("sigzen_gateway_shared_secret")
 	if not expected:
 		return False, "Gateway shared secret is not configured on this site (sigzen_gateway_shared_secret in site_config.json)."
 
-	if not secret or secret != expected:
+	if not secret or not hmac.compare_digest(str(secret), str(expected)):
 		return False, "Invalid or missing shared secret."
 
 	return True, None
@@ -27,10 +29,10 @@ def validate_client_name(client_name):
 		return True, None
 
 	if not client_name:
-		return False, f"client_name is required (expected '{expected}')."
+		return False, "client_name is required but was not provided."
 
-	if client_name != expected:
-		return False, f"client_name mismatch: expected '{expected}', got '{client_name}'."
+	if not hmac.compare_digest(str(client_name), str(expected)):
+		return False, "client_name does not match this site's configured client name."
 
 	return True, None
 

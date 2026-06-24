@@ -7,6 +7,17 @@ import requests
 def get_context(context):
     context.no_cache = 1
 
+    # If the user already has a valid BI session, send them straight to the dashboard.
+    if getattr(frappe.local, "request", None):
+        try:
+            from urllib.parse import unquote
+            existing_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+            if existing_user:
+                from sigzenbi_client.utils import redirect_without_port
+                redirect_without_port("/client_dashboard")
+        except Exception:
+            pass
+
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
         base_url += '/'
@@ -141,11 +152,23 @@ def login(usr=None, pwd=None, **kwargs):
                     title="client_login_extraction_debug"
                 )
 
+                # 24-hour persistent cookies so navigating away from the dashboard
+                # doesn't silently expire the BI session in the same browser session.
+                cookie_ttl = 86400
                 if central_sid and central_sid != "Guest":
-                    frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax")
-                
-                frappe.local.cookie_manager.set_cookie("client_session_user", usr, httponly=True, samesite="Lax")
-                frappe.local.cookie_manager.set_cookie("full_name", full_name, httponly=True, samesite="Lax")
+                    frappe.local.cookie_manager.set_cookie(
+                        "central_sid", central_sid,
+                        max_age=cookie_ttl, httponly=True, samesite="Lax"
+                    )
+
+                frappe.local.cookie_manager.set_cookie(
+                    "client_session_user", usr,
+                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                )
+                frappe.local.cookie_manager.set_cookie(
+                    "full_name", full_name,
+                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                )
                 
                 frappe.local.response["message"] = {
                     "status": "success",
@@ -174,8 +197,12 @@ def login(usr=None, pwd=None, **kwargs):
 
 @frappe.whitelist(allow_guest=True)
 def logout():
+    # Clear all BI session cookies only — do NOT call frappe.local.login_manager.logout()
+    # because that destroys the Frappe native session and logs the user out of the
+    # client Frappe site too, which is a separate concern from the BI dashboard session.
     frappe.local.cookie_manager.delete_cookie("client_session_user")
     frappe.local.cookie_manager.delete_cookie("full_name")
+    frappe.local.cookie_manager.delete_cookie("central_sid")
     frappe.local.response["message"] = {
         "status": "success",
         "message": _("Logged out successfully")

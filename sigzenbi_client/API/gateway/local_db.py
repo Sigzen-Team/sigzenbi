@@ -5,10 +5,16 @@ from decimal import Decimal
 import frappe
 
 READ_ONLY_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH")
+
+# Write operations that must never be executed through the analytics gateway.
 BLOCKED_KEYWORDS = re.compile(
-	r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE|CALL|LOAD|LOCK|UNLOCK)\b",
+	r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE"
+	r"|CALL|EXEC|EXECUTE|LOAD|LOCK|UNLOCK|MERGE|IMPORT)\b",
 	re.IGNORECASE,
 )
+
+# SELECT ... INTO OUTFILE/DUMPFILE writes files to the DB server — block it explicitly.
+_INTO_FILE_RE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
 
 def is_read_only_sql(sql):
@@ -19,15 +25,18 @@ def is_read_only_sql(sql):
 	if not cleaned:
 		return False, "sql must be a non-empty string."
 
-	upper = cleaned.upper()
-	if not upper.startswith(READ_ONLY_PREFIXES):
+	if not cleaned.upper().startswith(READ_ONLY_PREFIXES):
 		return False, "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) are allowed."
 
+	# Block multiple statements — a trailing semicolon is fine, an embedded one is not.
 	if ";" in cleaned.rstrip().rstrip(";"):
 		return False, "Multiple SQL statements are not allowed."
 
 	if BLOCKED_KEYWORDS.search(cleaned):
 		return False, "Only read-only queries are allowed."
+
+	if _INTO_FILE_RE.search(cleaned):
+		return False, "SELECT INTO OUTFILE/DUMPFILE is not allowed."
 
 	return True, None
 

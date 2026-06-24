@@ -7,7 +7,6 @@ import frappe
 from frappe.model.document import Document
 import requests
 from frappe.utils.password import get_decrypted_password
-from cryptography.fernet import Fernet
 
 class SigzenBIUsers(Document):
     def sync_with_central_server(self, action):
@@ -25,11 +24,6 @@ class SigzenBIUsers(Document):
 
         # Note: Hardcoded URL should be configurable (e.g., stored in settings) in production
         url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
-        if action == "update":
-            password = self.password
-        else:
-            password = get_decrypted_password("SigzenBI Users",self.user_name, "password").strip()
-            
         api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
         payload = {
             "api_key": settings.api_key,
@@ -41,8 +35,7 @@ class SigzenBIUsers(Document):
                 "full_name": self.full_name if " " in (self.full_name or "").strip() else f"{(self.full_name or '')} .",
                 "user_id": self.user_id,
                 "role": self.role,
-                "password": password,
-                "client_user": admin_user_name 
+                "client_user": admin_user_name,
             }
         }
         
@@ -57,15 +50,19 @@ class SigzenBIUsers(Document):
             frappe.log_error(title="SigzenBI User Sync Failed", message=str(e))
 
     def before_insert(self):
-        """Check user limit before inserting a new user."""
+        """Check user limit and uniqueness before inserting a new user."""
         settings = frappe.get_single("SigzenBI Subscription Settings")
-        
-        # Count current SigzenBI Users (excludes the user being inserted)
+
+        # Prevent duplicate registration by email
+        if self.email and frappe.db.exists("SigzenBI Users", {"email": self.email}):
+            frappe.throw(f"A user with email '{self.email}' is already registered.")
+
         current_user_count = frappe.db.count("SigzenBI Users")
-        
-        # Prevent insertion if max_users limit is reached
-        if current_user_count >= settings.max_users:
-            frappe.throw(f"User limit reached! Maximum allowed users are {settings.max_users}.")
+        if settings.max_users and current_user_count >= settings.max_users:
+            frappe.throw(
+                f"User limit reached. Maximum allowed users on your plan: {settings.max_users}. "
+                "Please upgrade your subscription to add more users."
+            )
 
     def after_insert(self):
         """Update user count and sync with central server after insertion."""
@@ -118,7 +115,6 @@ class SigzenBIUsers(Document):
         full_name = self.full_name
         user_id = self.user_id
         role = self.role
-        password = self.password
 
         settings = frappe.get_single("SigzenBI Subscription Settings")
 
@@ -139,8 +135,7 @@ class SigzenBIUsers(Document):
                 "full_name": full_name if " " in (full_name or "").strip() else f"{(full_name or '')} .",
                 "user_id": user_id,
                 "role": role,
-                "password": password,
-                "client_user": admin_user_name 
+                "client_user": admin_user_name,
             }
         }
 

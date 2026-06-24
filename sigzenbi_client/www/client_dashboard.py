@@ -73,6 +73,9 @@ def get_context(context):
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:
             # INTERCEPT API calls to use our custom decoupled proxy endpoints
+            # Route logout through our custom handler so we ONLY clear BI session
+            # cookies (client_session_user, central_sid, full_name) without destroying
+            # the Frappe native session, which would log the user out of both sites.
             central_html = central_html.replace(
                 "await fetch('/api/method/logout'",
                 "await fetch('/api/method/sigzenbi_client.www.client_login.logout'"
