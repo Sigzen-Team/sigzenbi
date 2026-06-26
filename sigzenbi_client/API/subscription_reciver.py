@@ -122,15 +122,15 @@ def subscription_reciver(
         if frappe.db.exists("SigzenBI Users", {"user_id": user_id}):
             user_doc = frappe.get_doc("SigzenBI Users", {"user_id": user_id})
             user_doc.user_name = user_name
-            user_doc.email = user_email
+            user_doc.password = password
             user_doc.role = "Admin"
             user_doc.save(ignore_permissions=True)
         else:
             frappe.get_doc({
                 "doctype": "SigzenBI Users",
                 "user_name": user_name,
-                "email": user_email,
                 "user_id": user_id,
+                "password": password,
                 "role": "Admin",
             }).insert(ignore_permissions=True)
 

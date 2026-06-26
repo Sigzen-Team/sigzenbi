@@ -17,8 +17,10 @@ def _get_central_base():
 
 def _get_auth_headers():
 	settings = frappe.get_single("SigzenBI Subscription Settings")
+	from frappe.utils.password import get_decrypted_password
+	api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
 	return {
-		"Authorization": f"token {settings.api_key}:{settings.api_secret}",
+		"Authorization": f"token {settings.api_key}:{api_secret}",
 		"Content-Type": "application/json",
 	}
 

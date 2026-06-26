@@ -88,6 +88,10 @@ def get_context(context):
                 "sigzenbi_central.API.fetch_dashboards.fetch_dashboards",
                 context.api_fetch_dashboards_url
             )
+            central_html = central_html.replace(
+                "CENTRAL_SERVER_URL.replace(/\\/$/, '') + '/ai_chat_frame'",
+                "'/ai_chart'"
+            )
             from sigzenbi_client.utils import rewrite_plans_link
             central_html = rewrite_plans_link(central_html)
 

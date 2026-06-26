@@ -54,8 +54,8 @@ class SigzenBIUsers(Document):
         settings = frappe.get_single("SigzenBI Subscription Settings")
 
         # Prevent duplicate registration by email
-        if self.email and frappe.db.exists("SigzenBI Users", {"email": self.email}):
-            frappe.throw(f"A user with email '{self.email}' is already registered.")
+        if self.user_id and frappe.db.exists("SigzenBI Users", {"user_id": self.user_id}):
+            frappe.throw(f"A user with email '{self.user_id}' is already registered.")
 
         current_user_count = frappe.db.count("SigzenBI Users")
         if settings.max_users and current_user_count >= settings.max_users:

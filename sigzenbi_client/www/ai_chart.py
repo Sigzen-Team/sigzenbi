@@ -76,10 +76,10 @@ def get_context(context):
 				if response.status_code == 200:
 					central_html = response.json().get("message")
 		except Exception as e:
-			frappe.log_error(title="ai_chat", message=f"Error fetching central ai_chat_frame.html: {e}")
+			frappe.log_error(title="ai_chart", message=f"Error fetching central template: {e}")
 
 	if not central_html:
-		context.html_content = "<h1>Could not load AI Chat builder.</h1>"
+		context.html_content = "<h1>Could not load AI Chart builder.</h1>"
 	else:
 		# Rewrite asset URLs to point to central server
 		if base_url:
@@ -104,4 +104,3 @@ def get_context(context):
 		context.html_content = central_html
 
 	return context
-

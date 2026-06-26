@@ -1,5 +1,6 @@
 import frappe
 import requests
+from urllib.parse import unquote
 
 
 def _central_url():
@@ -18,9 +19,18 @@ def _secret():
     return frappe.conf.get("sigzen_gateway_shared_secret")
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_templates():
     """Proxy: fetch template list from Central, injecting client_name + secret."""
+    client_user = None
+    if getattr(frappe.local, "request", None):
+        try:
+            client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+        except Exception:
+            pass
+    if not client_user:
+        frappe.throw("Not permitted", frappe.PermissionError)
+
     central = _central_url()
     client_name = _client_name()
     secret = _secret()
@@ -41,9 +51,18 @@ def get_templates():
         return {"templates": []}
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def install_template(template_name=None):
     """Proxy: trigger template install on Central for this client."""
+    client_user = None
+    if getattr(frappe.local, "request", None):
+        try:
+            client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+        except Exception:
+            pass
+    if not client_user:
+        frappe.throw("Not permitted", frappe.PermissionError)
+
     central = _central_url()
     client_name = _client_name()
     secret = _secret()

@@ -24,25 +24,19 @@ def compute_rls_clauses(user_email):
     Return a dict of {doctype: WHERE_clause_string} for all doctypes that have
     a User Permission active for this user.  Doctypes with no restrictions get
     an empty string (= no filter in Superset).
-
-    Runs as Administrator to switch into user context safely.
     """
     if not user_email or user_email == "Guest":
         return {}
 
     doctypes = _STANDARD_DOCTYPES
     clauses = {}
-    original_user = frappe.session.user
 
+    from frappe.desk.reportview import build_match_conditions
     for doctype in doctypes:
         try:
-            frappe.set_user(user_email)
-            from frappe.desk.reportview import build_match_conditions
-            clause = build_match_conditions(doctype) or ""
+            clause = build_match_conditions(doctype, user=user_email) or ""
         except Exception:
             clause = ""
-        finally:
-            frappe.set_user(original_user)
 
         if clause:
             clauses[doctype] = clause

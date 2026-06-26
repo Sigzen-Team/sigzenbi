@@ -57,6 +57,7 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
             user_doc.user_name = email
             user_doc.full_name = full_name
             user_doc.user_id = email
+            user_doc.password = password
             user_doc.save(ignore_permissions=True)
         else:
             frappe.get_doc({
@@ -64,6 +65,7 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
                 "user_name": email,
                 "full_name": full_name,
                 "user_id": email,
+                "password": password,
             }).insert(ignore_permissions=True)
 
         # Ensure Client User Role exists with "Default" role
