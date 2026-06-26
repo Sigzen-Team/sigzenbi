@@ -17,6 +17,15 @@ BLOCKED_KEYWORDS = re.compile(
 _INTO_FILE_RE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
 
+def _get_executable_sql(sql):
+	# Remove block comments /* ... */
+	sql_no_comments = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+	# Remove single-line comments starting with -- or #
+	sql_no_comments = re.sub(r"(--|#).*?(\n|$)", "", sql_no_comments)
+	# Strip leading/trailing whitespace and common wrapper characters
+	return sql_no_comments.strip(" \t\n\r()[]")
+
+
 def is_read_only_sql(sql):
 	if not sql or not isinstance(sql, str):
 		return False, "sql must be a non-empty string."
@@ -25,17 +34,21 @@ def is_read_only_sql(sql):
 	if not cleaned:
 		return False, "sql must be a non-empty string."
 
-	if not cleaned.upper().startswith(READ_ONLY_PREFIXES):
+	executable_sql = _get_executable_sql(cleaned)
+	if not executable_sql:
+		return False, "sql must contain an executable query."
+
+	if not executable_sql.upper().startswith(READ_ONLY_PREFIXES):
 		return False, "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) are allowed."
 
 	# Block multiple statements — a trailing semicolon is fine, an embedded one is not.
-	if ";" in cleaned.rstrip().rstrip(";"):
+	if ";" in executable_sql.rstrip().rstrip(";"):
 		return False, "Multiple SQL statements are not allowed."
 
-	if BLOCKED_KEYWORDS.search(cleaned):
+	if BLOCKED_KEYWORDS.search(executable_sql):
 		return False, "Only read-only queries are allowed."
 
-	if _INTO_FILE_RE.search(cleaned):
+	if _INTO_FILE_RE.search(executable_sql):
 		return False, "SELECT INTO OUTFILE/DUMPFILE is not allowed."
 
 	return True, None
@@ -114,7 +127,12 @@ def execute_read_query(sql, params=None):
 def _execute_via_frappe(sql, query_params):
 	try:
 		frappe.connect()
-		rows = frappe.db.sql(sql, query_params, as_dict=False)
+		# Enable ANSI_QUOTES to support SQL compiled with ANSI double-quoted identifiers
+		frappe.db.sql("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
+		if query_params:
+			rows = frappe.db.sql(sql, query_params, as_dict=False)
+		else:
+			rows = frappe.db.sql(sql, as_dict=False)
 		columns = (
 			[desc[0] for desc in frappe.db._cursor.description]
 			if frappe.db._cursor.description
@@ -144,7 +162,9 @@ def _execute_via_pymysql(sql, query_params, config):
 			cursorclass=pymysql.cursors.Cursor,
 		)
 		with connection.cursor() as cursor:
-			cursor.execute(sql, query_params)
+			# Enable ANSI_QUOTES to support SQL compiled with ANSI double-quoted identifiers
+			cursor.execute("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
+			cursor.execute(sql, query_params or None)
 			rows = cursor.fetchall()
 			columns = [desc[0] for desc in cursor.description] if cursor.description else []
 		return True, columns, _sanitize_rows(rows), None

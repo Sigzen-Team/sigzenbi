@@ -52,33 +52,43 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
         update_password(email, password)
 
         # Create or update SigzenBI Users
-        if frappe.db.exists("SigzenBI Users", email):
-            user_doc = frappe.get_doc("SigzenBI Users", email)
-            user_doc.user_name = email
-            user_doc.full_name = full_name
-            user_doc.user_id = email
-            user_doc.password = password
-            user_doc.save(ignore_permissions=True)
-        else:
-            frappe.get_doc({
-                "doctype": "SigzenBI Users",
-                "user_name": email,
-                "full_name": full_name,
-                "user_id": email,
-                "password": password,
-            }).insert(ignore_permissions=True)
+        frappe.flags.in_fetch_first_user = True
+        try:
+            if frappe.db.exists("SigzenBI Users", email):
+                user_doc = frappe.get_doc("SigzenBI Users", email)
+                user_doc.user_name = email
+                user_doc.full_name = full_name
+                user_doc.user_id = email
+                user_doc.password = password
+                user_doc.save(ignore_permissions=True)
+            else:
+                frappe.get_doc({
+                    "doctype": "SigzenBI Users",
+                    "user_name": email,
+                    "full_name": full_name,
+                    "user_id": email,
+                    "password": password,
+                }).insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_fetch_first_user = False
 
-        # Ensure Client User Role exists with "Default" role
+        # Ensure Client User Role exists with default role client record
+        client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
+        client_prefix = client_name.strip().replace(" ", "_") if client_name else "default_client"
+        default_role = f"{client_prefix}_Default"
+        if not frappe.db.exists("SigzenBI Role Client", default_role):
+            default_role = frappe.db.get_value("SigzenBI Role Client", {"name": ["like", "%_Default"]}, "name") or "Default"
+
         if not frappe.db.exists("Client User Role", email):
             frappe.get_doc({
                 "doctype": "Client User Role",
                 "user": email,
-                "roles": [{"role": "Default"}],
+                "roles": [{"role": default_role}],
             }).insert(ignore_permissions=True)
         else:
             client_role_doc = frappe.get_doc("Client User Role", email)
-            if not any(row.role == "Default" for row in client_role_doc.roles):
-                client_role_doc.append("roles", {"role": "Default"})
+            if not any(row.role == default_role for row in client_role_doc.roles):
+                client_role_doc.append("roles", {"role": default_role})
                 client_role_doc.save(ignore_permissions=True)
 
         frappe.db.sql(

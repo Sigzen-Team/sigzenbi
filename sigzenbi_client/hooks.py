@@ -148,12 +148,11 @@ after_install = "sigzenbi_client.after_install.after_install.create_default_perm
 
 # Scheduled Tasks
 # ---------------
-
-scheduler_events = {
-	"all": [
-		"sigzenbi_client.API.gateway.poll_jobs.check_and_start_polling_loop"
-	],
-}
+# scheduler_events = {
+# 	"all": [
+# 		"sigzenbi_client.API.gateway.poll_jobs.check_and_start_polling_loop"
+# 	],
+# }
 
 # Testing
 # -------

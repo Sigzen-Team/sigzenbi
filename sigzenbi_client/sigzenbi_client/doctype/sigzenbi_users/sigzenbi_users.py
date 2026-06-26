@@ -51,6 +51,9 @@ class SigzenBIUsers(Document):
 
     def before_insert(self):
         """Check user limit and uniqueness before inserting a new user."""
+        if frappe.flags.in_fetch_first_user:
+            return
+
         settings = frappe.get_single("SigzenBI Subscription Settings")
 
         # Prevent duplicate registration by email
@@ -70,10 +73,16 @@ class SigzenBIUsers(Document):
         settings.current_users = frappe.db.count("SigzenBI Users")
         settings.save(ignore_permissions=True)
         if not frappe.db.exists("Client User Role", self.user_name):
+            client_name = settings.client_name
+            client_prefix = client_name.strip().replace(" ", "_") if client_name else "default_client"
+            default_role = f"{client_prefix}_Default"
+            if not frappe.db.exists("SigzenBI Role Client", default_role):
+                default_role = frappe.db.get_value("SigzenBI Role Client", {"name": ["like", "%_Default"]}, "name") or "Default"
+
             doc = frappe.get_doc({
-            "doctype": "Client User Role",
-            "user": self.user_name,
-            "roles": [{"role": "Default"}]  
+                "doctype": "Client User Role",
+                "user": self.user_name,
+                "roles": [{"role": default_role}]  
             })
             doc.insert(ignore_permissions=True)
         self.sync_with_central_server(action="create")
