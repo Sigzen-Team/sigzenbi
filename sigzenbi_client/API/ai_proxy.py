@@ -29,9 +29,19 @@ def _get_client_name():
 	return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or ""
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def generate_sql_from_question(question):
 	"""Proxy NL2SQL question to Central."""
+	client_user = None
+	if getattr(frappe.local, "request", None):
+		try:
+			from urllib.parse import unquote
+			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+		except Exception:
+			pass
+	if not client_user:
+		frappe.throw("Not permitted", frappe.PermissionError)
+
 	if not question or not question.strip():
 		frappe.throw(_("Question cannot be empty."))
 
@@ -60,9 +70,19 @@ def generate_sql_from_question(question):
 		frappe.throw("AI service error.")
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def create_chart_from_question(question, chart_title=None):
 	"""Proxy AI chart creation to Central."""
+	client_user = None
+	if getattr(frappe.local, "request", None):
+		try:
+			from urllib.parse import unquote
+			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+		except Exception:
+			pass
+	if not client_user:
+		frappe.throw("Not permitted", frappe.PermissionError)
+
 	if not question or not question.strip():
 		frappe.throw(_("Question cannot be empty."))
 

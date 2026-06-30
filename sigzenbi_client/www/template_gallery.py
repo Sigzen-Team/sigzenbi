@@ -47,14 +47,10 @@ def get_context(context):
         for pat in ('"/assets/', "'/assets/", 'url(/assets/', 'url("/assets/', "url('/assets/"):
             central_html = central_html.replace(pat, pat[0] + browser_base + "assets/")
 
-    # Route API calls through the client proxy endpoints
+    # Redirect JS fetch calls to the client app's local proxy methods
     central_html = central_html.replace(
-        "sigzenbi_central.API.template_gallery.get_templates",
-        "sigzenbi_client.API.template_gallery.get_templates",
-    )
-    central_html = central_html.replace(
-        "sigzenbi_central.API.template_gallery.install_template",
-        "sigzenbi_client.API.template_gallery.install_template",
+        "sigzenbi_central.API.template_gallery",
+        "sigzenbi_client.API.template_gallery"
     )
 
     from sigzenbi_client.utils import rewrite_plans_link
