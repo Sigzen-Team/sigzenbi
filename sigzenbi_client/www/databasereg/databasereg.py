@@ -213,9 +213,8 @@ def get_database_credentials(**kwargs):
         kwargs["client_site_port"] = client_port
         
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
-        response = requests.post(url, json=kwargs, timeout=20)
-        
-        parsed = parse_response(response)
+        from sigzenbi_client.utils import call_central_api
+        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=20)
         return parsed
     except Exception as e:
         frappe.log_error(title="Database Proxy Error", message=f"Get Database Credentials Proxy Error: {e}")

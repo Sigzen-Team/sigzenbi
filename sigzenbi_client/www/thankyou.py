@@ -22,13 +22,11 @@ def get_context(context):
     if client_name and base_url:
         try:
             url = f"{base_url}api/method/sigzenbi_central.API.fetch_database_credentials.check_database_registration_status"
-            response = requests.post(url, json={"client_name": client_name}, timeout=10)
-            if response.status_code == 200:
-                res_json = response.json()
-                res_msg = res_json.get("message") or {}
-                if isinstance(res_msg, dict) and res_msg.get("status") == "success":
-                    if res_msg.get("exists") is True:
-                        db_registered = True
+            from sigzenbi_client.utils import call_central_api
+            res_msg = call_central_api(url, payload={"client_name": client_name}, method="POST", timeout=10)
+            if isinstance(res_msg, dict) and res_msg.get("status") == "success":
+                if res_msg.get("exists") is True:
+                    db_registered = True
         except Exception as e:
             frappe.log_error(title="thankyou", message=f"Error checking database credentials registration status: {e}")
 

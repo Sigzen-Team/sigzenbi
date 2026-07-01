@@ -15,16 +15,6 @@ def _get_central_base():
 	return base_url
 
 
-def _get_auth_headers():
-	settings = frappe.get_single("SigzenBI Subscription Settings")
-	from frappe.utils.password import get_decrypted_password
-	api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
-	return {
-		"Authorization": f"token {settings.api_key}:{api_secret}",
-		"Content-Type": "application/json",
-	}
-
-
 def _get_client_name():
 	return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or ""
 
@@ -46,28 +36,22 @@ def generate_sql_from_question(question):
 		frappe.throw(_("Question cannot be empty."))
 
 	base_url = _get_central_base()
-	headers = _get_auth_headers()
 	client_name = _get_client_name()
 
 	try:
-		resp = requests.post(
+		from sigzenbi_client.utils import call_central_api
+		res = call_central_api(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
-			json={"client_name": client_name, "question": question.strip()},
-			headers=headers,
+			payload={"client_name": client_name, "question": question.strip()},
+			method="POST",
 			timeout=60,
 		)
-		if resp.status_code == 200:
-			return resp.json().get("message")
-		frappe.log_error(
-			title="AI Proxy NL2SQL Failed",
-			message=f"status={resp.status_code}\n{resp.text[:500]}",
-		)
-		frappe.throw("AI service temporarily unavailable. Please try again.")
+		return res
 	except requests.exceptions.Timeout:
 		frappe.throw("AI request timed out. Please try again.")
-	except Exception:
+	except Exception as e:
 		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
-		frappe.throw("AI service error.")
+		frappe.throw(f"AI service error: {str(e)}")
 
 
 @frappe.whitelist(allow_guest=True)
@@ -87,7 +71,6 @@ def create_chart_from_question(question, chart_title=None):
 		frappe.throw(_("Question cannot be empty."))
 
 	base_url = _get_central_base()
-	headers = _get_auth_headers()
 	client_name = _get_client_name()
 
 	payload = {
@@ -98,42 +81,36 @@ def create_chart_from_question(question, chart_title=None):
 		payload["chart_title"] = chart_title
 
 	try:
-		resp = requests.post(
+		from sigzenbi_client.utils import call_central_api
+		res = call_central_api(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
-			json=payload,
-			headers=headers,
+			payload=payload,
+			method="POST",
 			timeout=90,
 		)
-		if resp.status_code == 200:
-			return resp.json().get("message")
-		frappe.log_error(
-			title="AI Proxy Chart Creation Failed",
-			message=f"status={resp.status_code}\n{resp.text[:500]}",
-		)
-		frappe.throw("AI service temporarily unavailable. Please try again.")
+		return res
 	except requests.exceptions.Timeout:
 		frappe.throw("AI chart creation timed out. Please try again.")
-	except Exception:
+	except Exception as e:
 		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
-		frappe.throw("AI service error.")
+		frappe.throw(f"AI service error: {str(e)}")
 
 
 @frappe.whitelist()
 def get_wallet_balance():
 	"""Proxy credit balance fetch to Central."""
 	base_url = _get_central_base()
-	headers = _get_auth_headers()
 	client_name = _get_client_name()
 
 	try:
-		resp = requests.get(
+		from sigzenbi_client.utils import call_central_api
+		res = call_central_api(
 			f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.get_wallet_balance",
-			params={"client_name": client_name},
-			headers=headers,
+			payload={"client_name": client_name},
+			method="GET",
 			timeout=15,
 		)
-		if resp.status_code == 200:
-			return resp.json().get("message")
+		return res
 	except Exception:
 		pass
 	return {"balance": 0}
@@ -143,18 +120,46 @@ def get_wallet_balance():
 def get_suggested_questions():
 	"""Proxy suggested questions fetch to Central."""
 	base_url = _get_central_base()
-	headers = _get_auth_headers()
 	client_name = _get_client_name()
 
 	try:
-		resp = requests.get(
+		from sigzenbi_client.utils import call_central_api
+		res = call_central_api(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.get_suggested_questions",
-			params={"client_name": client_name},
-			headers=headers,
+			payload={"client_name": client_name},
+			method="GET",
 			timeout=15,
 		)
-		if resp.status_code == 200:
-			return resp.json().get("message", [])
+		return res or []
 	except Exception:
 		pass
 	return []
+
+
+def _get_auth_headers():
+    """
+    Fetch current rotating API Key and API Secret from local client settings
+    and format them into the standard Frappe Authorization header.
+    """
+    doctype_name = "SigzenBI Subscription Settings"
+    if not frappe.db.exists("DocType", doctype_name):
+        doctype_name = "SigzenBI Settings" # fallback if needed
+    settings = frappe.get_doc(doctype_name)
+    api_key = getattr(settings, "central_api_key", None) or settings.api_key
+    api_secret = settings.get_password("central_api_secret") if (hasattr(settings, "central_api_secret") and settings.central_api_secret) else settings.get_password("api_secret") if settings.api_secret else ""
+    
+    return {
+        "Authorization": f"token {api_key}:{api_secret}"
+    }
+
+
+def _get_client_name():
+    """
+    Fetch the registered client name from settings.
+    """
+    doctype_name = "SigzenBI Subscription Settings"
+    if not frappe.db.exists("DocType", doctype_name):
+        doctype_name = "SigzenBI Settings"
+    return frappe.db.get_single_value(doctype_name, "client_name") or ""
+
+

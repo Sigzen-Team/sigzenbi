@@ -28,14 +28,11 @@ class ClientUserRole(Document):
         url = f"{base_url}api/method/sigzenbi_central.API.sync_user_role.update_user_roles"
 
         try:
-            response = requests.post(url, json=payload)
+            from sigzenbi_client.utils import call_central_api
+            result = call_central_api(url, payload=payload, method="POST")
 
-            if response.status_code != 200:
-                frappe.throw(f"Failed to update user roles: {response.text}")
-
-            result = response.json()
-            if result.get("message", {}).get("status") == "error":
-                frappe.throw(f"API error: {result['message'].get('message')}")
+            if isinstance(result, dict) and result.get("status") == "error":
+                frappe.throw(f"API error: {result.get('message')}")
 
         except Exception as e:
             frappe.throw(f"Error contacting central server: {str(e)}")
@@ -55,14 +52,11 @@ class ClientUserRole(Document):
         url = f"{base_url}api/method/sigzenbi_central.API.sync_user_role.update_user_roles"
 
         try:
-            response = requests.post(url, json=payload)
+            from sigzenbi_client.utils import call_central_api
+            result = call_central_api(url, payload=payload, method="POST")
 
-            if response.status_code != 200:
-                frappe.throw(f"Failed to delete user roles: {response.text}")
-
-            result = response.json()
-            if result.get("message", {}).get("status") == "error":
-                frappe.throw(f"API error: {result['message'].get('message')}")
+            if isinstance(result, dict) and result.get("status") == "error":
+                frappe.throw(f"API error: {result.get('message')}")
 
         except Exception as e:
             frappe.throw(f"Error contacting central server: {str(e)}")

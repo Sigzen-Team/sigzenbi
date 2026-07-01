@@ -25,9 +25,6 @@ def fetch_dashboards():
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         API_URL = f"{base_url}api/method/sigzenbi_central.API.fetch_dashboards.fetch_dashboards"
-        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        from frappe.utils.password import get_decrypted_password
-        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
@@ -35,14 +32,9 @@ def fetch_dashboards():
         if client_user:
             cookies["client_session_user"] = client_user
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"token {API_KEY}:{API_SECRET}"
-        }
-
-        response = requests.post(API_URL, headers=headers, cookies=cookies, json={"user_email": user_email}, timeout=15)
-        res_json = response.json()
-        return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
+        from sigzenbi_client.utils import call_central_api
+        res_json = call_central_api(API_URL, payload={"user_email": user_email}, method="POST", cookies=cookies, timeout=15)
+        return res_json
     except Exception as e:
         frappe.log_error(title="fetch_dashboards_client", message=f"Error in client fetch_dashboards: {str(e)}")
         return {"success": False, "message": str(e)}
@@ -71,20 +63,12 @@ def get_superset_token(dashboard_id=None):
             return {"success": False, "message": "ERP Link not set in Subscription Settings"}
 
         TOKEN_URL = f"{base_url}api/method/sigzenbi_central.API.superset_sync.get_guest_token.get_superset_token"
-        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        from frappe.utils.password import get_decrypted_password
-        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
         
         cookies = {}
         if central_sid:
             cookies["sid"] = central_sid
         if client_user:
             cookies["client_session_user"] = client_user
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"token {API_KEY}:{API_SECRET}"
-        }
 
         # Compute Frappe User Permissions → RLS clauses locally (no reverse HTTP call needed)
         rls_clauses = {}
@@ -95,9 +79,9 @@ def get_superset_token(dashboard_id=None):
             frappe.log_error(title="get_superset_token: RLS computation", message=frappe.get_traceback())
 
         payload = {"dashboard_id": dashboard_id, "user_email": user_email, "rls_clauses": rls_clauses}
-        res = requests.post(TOKEN_URL, headers=headers, cookies=cookies, json=payload, timeout=15)
-        res_json = res.json()
-        return res_json.get("message") if isinstance(res_json, dict) and "message" in res_json else res_json
+        from sigzenbi_client.utils import call_central_api
+        res_json = call_central_api(TOKEN_URL, payload=payload, method="POST", cookies=cookies, timeout=15)
+        return res_json
     except Exception as e:
         frappe.log_error(title="get_superset_token_client", message=f"Error in client get_superset_token: {str(e)}")
         return {"success": False, "message": str(e)}

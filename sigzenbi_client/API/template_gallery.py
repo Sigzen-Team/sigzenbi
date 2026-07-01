@@ -4,19 +4,17 @@ import requests
 
 @frappe.whitelist(allow_guest=True)
 def get_templates():
-    central_url = frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    if base_url and not base_url.endswith("/"):
+        base_url += "/"
     secret = frappe.conf.get("sigzen_gateway_shared_secret")
-    # Use configured client_name — NOT frappe.local.site (which is the site folder name)
-    client_name = frappe.conf.get("client_name") or frappe.local.site
+    client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
 
     try:
-        response = requests.get(
-            f"{central_url}/api/method/sigzenbi_central.API.template_gallery.get_templates",
-            params={"client_name": client_name, "secret": secret},
-            timeout=10
-        )
-        if response.status_code == 200:
-            return response.json().get("message")
+        from sigzenbi_client.utils import call_central_api
+        url = f"{base_url}api/method/sigzenbi_central.API.template_gallery.get_templates"
+        res = call_central_api(url, payload={"client_name": client_name, "secret": secret}, method="GET", timeout=10)
+        return res
     except Exception as e:
         frappe.log_error(title="get_templates proxy failed", message=str(e))
     return {"templates": []}
@@ -24,23 +22,17 @@ def get_templates():
 
 @frappe.whitelist(allow_guest=True)
 def install_template(template_name=None):
-    central_url = frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    if base_url and not base_url.endswith("/"):
+        base_url += "/"
     secret = frappe.conf.get("sigzen_gateway_shared_secret")
-    # Use configured client_name — NOT frappe.local.site
-    client_name = frappe.conf.get("client_name") or frappe.local.site
+    client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
 
     try:
-        response = requests.get(
-            f"{central_url}/api/method/sigzenbi_central.API.template_gallery.install_template",
-            params={"template_name": template_name, "client_name": client_name, "secret": secret},
-            timeout=30
-        )
-        if response.status_code == 200:
-            return response.json().get("message")
-        frappe.log_error(
-            title="install_template proxy: central non-200",
-            message=f"Status: {response.status_code}, Body: {response.text}"
-        )
+        from sigzenbi_client.utils import call_central_api
+        url = f"{base_url}api/method/sigzenbi_central.API.template_gallery.install_template"
+        res = call_central_api(url, payload={"template_name": template_name, "client_name": client_name, "secret": secret}, method="GET", timeout=30)
+        return res
     except Exception as e:
         frappe.log_error(title="install_template proxy failed", message=str(e))
     return {"success": False, "message": "Failed to connect to central server."}

@@ -27,29 +27,25 @@ def fetch_and_update_permissions():
 
         # API configuration
         API_URL = f"{base_url}api/method/sigzenbi_central.API.send_permissions.send_permissions"
-        API_KEY = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-        from frappe.utils.password import get_decrypted_password
-        API_SECRET = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"token {API_KEY}:{API_SECRET}",
-            "X-Frappe-CSRF-Token": frappe.request.cookies.get("csrf_token") or frappe.local.session.get("csrf_token")
-        }
+        headers = {}
+        csrf_token = (frappe.request.cookies.get("csrf_token") if getattr(frappe.local, "request", None) else None) or frappe.local.session.get("csrf_token")
+        if csrf_token:
+            headers["X-Frappe-CSRF-Token"] = csrf_token
         payload = {"client_name": client_name}
 
         # Call the API
         frappe.log_error(title="fetch_and_update_permissions", message=f"Calling API with client_name: {client_name}")
-        response = requests.post(API_URL, headers=headers, json=payload)
-        response_data = response.json()
+        from sigzenbi_client.utils import call_central_api
+        response_data = call_central_api(API_URL, payload=payload, method="POST", headers=headers)
         frappe.log_error(title="fetch_and_update_permissions", message=f"API Response: {json.dumps(response_data, indent=2)}")
 
-        if response.status_code != 200 or not (response_data.get("message") and response_data["message"].get("status") == "success"):
+        if not response_data or response_data.get("status") != "success":
             return {
                 "status": "error",
-                "error": f"API call failed: {response_data.get('message', {}).get('error', 'Unknown error')}"
+                "error": f"API call failed: {response_data.get('error', 'Unknown error') if isinstance(response_data, dict) else 'Unknown error'}"
             }
 
-        permissions = response_data["message"].get("permissions", [])
+        permissions = response_data.get("permissions", [])
         if not permissions:
             return {
                 "status": "success",

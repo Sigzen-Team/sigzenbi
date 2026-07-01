@@ -24,15 +24,11 @@ def get_context(context):
     central_html = ""
     if base_url:
         try:
-            resp = requests.get(
-                f"{base_url}api/method/sigzenbi_central.www.template_gallery.template_gallery.get_gallery_template",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                try:
-                    central_html = resp.json().get("message", resp.text)
-                except Exception:
-                    central_html = resp.text
+            from sigzenbi_client.utils import call_central_api
+            url = f"{base_url}api/method/sigzenbi_central.www.template_gallery.template_gallery.get_gallery_template"
+            res = call_central_api(url, method="GET", timeout=10)
+            if res:
+                central_html = res.get("message", res) if isinstance(res, dict) else res
         except Exception as exc:
             frappe.log_error(title="template_gallery proxy", message=str(exc))
 

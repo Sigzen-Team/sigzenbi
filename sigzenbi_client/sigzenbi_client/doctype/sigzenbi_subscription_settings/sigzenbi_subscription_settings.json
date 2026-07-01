@@ -24,6 +24,8 @@
   "column_break_chgc",
   "api_key",
   "api_secret",
+  "central_api_key",
+  "central_api_secret",
   "payment_details_section",
   "invoice_number",
   "payment_method",
@@ -163,6 +165,18 @@
    "fieldname": "api_secret",
    "fieldtype": "Password",
    "label": "API Secret",
+   "read_only": 1
+  },
+  {
+   "fieldname": "central_api_key",
+   "fieldtype": "Data",
+   "label": "Central API Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "central_api_secret",
+   "fieldtype": "Password",
+   "label": "Central API Secret",
    "read_only": 1
   },
   {

@@ -207,8 +207,10 @@ def get_client_credentials(**kwargs):
                 settings.client_name = client_name
             if api_key:
                 settings.api_key = api_key
+                settings.central_api_key = api_key
             if api_secret:
                 settings.api_secret = api_secret
+                settings.central_api_secret = api_secret
             settings.save(ignore_permissions=True)
             frappe.db.commit()
 
@@ -242,6 +244,7 @@ def fetch_client_subscription(**kwargs):
         if base_url and not base_url.endswith('/'):
             base_url += '/'
         
+        # Pop cmd to avoid central routing conflicts
         kwargs.pop("cmd", None)
 
         # Retrieve and inject dynamic client site URL and port
@@ -251,9 +254,8 @@ def fetch_client_subscription(**kwargs):
         kwargs["client_site_port"] = client_port
 
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_client_subscription.fetch_client_subscription"
-        response = requests.post(url, json=kwargs, timeout=120)
-        
-        parsed = parse_response(response)
+        from sigzenbi_client.utils import call_central_api
+        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=120)
         
         if parsed.get("status") == "success":
             settings = frappe.get_single("SigzenBI Subscription Settings")

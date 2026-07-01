@@ -55,8 +55,6 @@ class SigzenBIRoleClient(Document):
         client_name = self.get_client_name()
         if client_name:
             client_name = client_name.strip()
-        api_key = frappe.db.get_single_value("SigzenBI Subscription Settings", "api_key")
-        api_secret = frappe.db.get_single_value("SigzenBI Subscription Settings", "api_secret")
 
         if not server_url:
             frappe.throw("Server URL is not configured in SigzenBI Subscription Settings")
@@ -68,10 +66,6 @@ class SigzenBIRoleClient(Document):
         
         if not server_url.endswith("/"):
             server_url += "/"
-
-        headers = {
-            "Content-Type": "application/json"
-        }
 
         # Clean the permissions and convert datetime fields to string
         permissions_clean = []
@@ -102,37 +96,23 @@ class SigzenBIRoleClient(Document):
                 message=f"Sending {operation} request to {server_url}\nPayload: {json.dumps(data, indent=2)}"
             )
 
-            response = requests.post(
-                f"{server_url}api/method/sigzenbi_central.API.permission_sync.sync_permission",
-                data=json.dumps(data),
-                headers=headers
-            )
-            response.raise_for_status()
+            from sigzenbi_client.utils import call_central_api
+            url = f"{server_url}api/method/sigzenbi_central.API.permission_sync.sync_permission"
+            result = call_central_api(url, payload=data, method="POST")
 
-            frappe.log_error(title="Sync Response Raw", message=f"Raw Response Text: {response.text}")
+            frappe.log_error(title="Sync Response Raw", message=f"Response: {result}")
 
-            try:
-                result = response.json()
-            except json.JSONDecodeError:
-                frappe.log_error(title="Client Sync Error", message=f"Non-JSON response: {response.text}")
-                frappe.throw("Server returned invalid JSON response")
-
-            server_message = result.get("message", {})
-            if server_message.get("status") != "success":
-                error_message = server_message.get("message", "Unknown error")
-                frappe.log_error(title="Client Sync Error", message=f"Server Sync Failed: {error_message}\nResponse: {json.dumps(result, indent=2)}")
+            if not isinstance(result, dict) or result.get("status") != "success":
+                error_message = result.get("message", "Unknown error") if isinstance(result, dict) else "Unknown error"
+                frappe.log_error(title="Client Sync Error", message=f"Server Sync Failed: {error_message}")
                 frappe.throw(f"Server Sync Failed: {error_message}")
 
-            frappe.log_error(title="Client Sync Success", message=f"Successful {operation}: {server_message.get('message')}")
+            frappe.log_error(title="Client Sync Success", message=f"Successful {operation}: {result.get('message')}")
 
             if operation == "create":
-                return server_message
+                return result
 
             return True
-
-        except requests.exceptions.RequestException as e:
-            frappe.log_error(title="Client Sync Error", message=f"Request failed: {str(e)}\nResponse: {getattr(e.response, 'text', 'No response')}")
-            frappe.throw(f"Failed to sync with server: {str(e)}")
 
         except Exception as e:
             frappe.log_error(title="Client Sync Error", message=f"Unexpected error: {str(e)}")

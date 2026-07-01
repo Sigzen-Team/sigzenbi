@@ -24,10 +24,7 @@ class SigzenBIUsers(Document):
 
         # Note: Hardcoded URL should be configurable (e.g., stored in settings) in production
         url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
-        api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
         payload = {
-            "api_key": settings.api_key,
-            "api_secret": api_secret,
             "action": action,
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,
@@ -40,10 +37,10 @@ class SigzenBIUsers(Document):
         }
         
         try:
-            response = requests.post(url, json=payload, timeout=10)
-            response = response.json()
+            from sigzenbi_client.utils import call_central_api
+            response = call_central_api(url, payload=payload, method="POST", timeout=10)
             
-            if (response.get("status") == "error"):
+            if response.get("status") == "error":
                 frappe.msgprint(response.get("message"))
             sync_role(self.user_name)  
         except Exception as e:
@@ -133,10 +130,7 @@ class SigzenBIUsers(Document):
             "user_name"
         )
                 
-        api_secret = get_decrypted_password("SigzenBI Subscription Settings", "SigzenBI Subscription Settings", "api_secret")
         payload = {
-            "api_key": settings.api_key,
-            "api_secret": api_secret,
             "action": "delete",
             "user_data": {
                 "client_name": settings.client_name.strip() if settings.client_name else None,
@@ -153,8 +147,8 @@ class SigzenBIUsers(Document):
             if base_url and not base_url.endswith("/"):
                 base_url += "/"
             url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
-            response = requests.post(url, json=payload, timeout=10)
-            response.raise_for_status()
+            from sigzenbi_client.utils import call_central_api
+            call_central_api(url, payload=payload, method="POST", timeout=10)
             # frappe.delete_doc("Client User Role", user_name)
             frappe.db.sql("DELETE FROM `tabClient User Role` WHERE name = %s", (user_name))
             frappe.db.sql("DELETE FROM `tabBI Role Client` WHERE parent = %s", (user_name))
@@ -183,12 +177,10 @@ def sync_role(user_name):
     }
     url = f"{base_url}api/method/sigzenbi_central.API.sync_user_role.update_user_roles"
     try:
-        response = requests.post(url, json=payload)
-        if response.status_code != 200:
-            frappe.throw(f"Failed to update user roles: {response.text}")
-        result = response.json()
-        if result.get("message", {}).get("status") == "error":
-            frappe.throw(f"API error: {result['message'].get('message')}")
+        from sigzenbi_client.utils import call_central_api
+        result = call_central_api(url, payload=payload, method="POST")
+        if result.get("status") == "error":
+            frappe.throw(f"API error: {result.get('message')}")
     except Exception as e:
         frappe.throw(f"Error contacting central server: {str(e)}")
         

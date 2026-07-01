@@ -110,6 +110,8 @@ def subscription_reciver(
         frappe.db.set_value("SigzenBI Subscription Settings", None, "max_users", max_user)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "api_key", api_key)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "api_secret", api_secret)
+        frappe.db.set_value("SigzenBI Subscription Settings", None, "central_api_key", api_key)
+        frappe.db.set_value("SigzenBI Subscription Settings", None, "central_api_secret", api_secret)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "currency_vmhj", subscription_amount)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "licence_no", subscription_id)

@@ -42,8 +42,7 @@ def get_context(context):
 	context.central_url = base_url
 	context.csrf_token = frappe.sessions.get_csrf_token()
 
-	from sigzenbi_client.API.ai_proxy import _get_auth_headers, _get_client_name
-	headers = _get_auth_headers()
+	from sigzenbi_client.API.ai_proxy import _get_client_name
 	client_name = _get_client_name()
 
 	central_html = ""
@@ -51,20 +50,18 @@ def get_context(context):
 		try:
 			# Fetch AI chat template from central server
 			url = f"{base_url}api/method/sigzenbi_central.www.client_login.get_chat_template"
-			response = None
 			try:
-				response = requests.get(
+				from sigzenbi_client.utils import call_central_api
+				central_html = call_central_api(
 					url,
-					params={"client": client_name},
-					headers=headers,
+					payload={"client": client_name},
+					method="GET",
 					timeout=10
 				)
-				if response.status_code == 200:
-					central_html = response.json().get("message")
 			except Exception:
 				pass
 
-			if not central_html or (response is not None and response.status_code == 401):
+			if not central_html:
 				# Fallback: request without Authorization header in case api_key/secret is invalid
 				guest_headers = {"Content-Type": "application/json"}
 				response = requests.get(

@@ -113,6 +113,63 @@ def get_client_url_and_port():
     return client_url, str(client_port)
 
 
+import threading
+import requests
+
+_api_lock = threading.Lock()
+
+def call_central_api(endpoint_url, payload=None, method="POST", headers=None, cookies=None, timeout=15):
+    """
+    Sends request to Central with current credentials and atomically 
+    saves the next rotated credentials returned in the response.
+    """
+    with _api_lock:
+        settings = frappe.get_doc("SigzenBI Subscription Settings")
+        api_key = getattr(settings, "central_api_key", None) or settings.api_key
+        api_secret = settings.get_password("central_api_secret") if (hasattr(settings, "central_api_secret") and settings.central_api_secret) else settings.get_password("api_secret")
+
+        if not payload:
+            payload = {}
+
+        payload.update({
+            "api_key": api_key,
+            "api_secret": api_secret
+        })
+
+        if not headers:
+            headers = {}
+        if "Content-Type" not in headers:
+            headers["Content-Type"] = "application/json"
+
+        headers["Authorization"] = f"token {api_key}:{api_secret}"
+
+        if method == "POST":
+            response = requests.post(endpoint_url, json=payload, headers=headers, cookies=cookies, timeout=timeout)
+        else:
+            response = requests.get(endpoint_url, params=payload, headers=headers, cookies=cookies, timeout=timeout)
+
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, dict) and "message" in data:
+            data = data["message"]
+
+        if isinstance(data, dict) and data.get("next_api_key") and data.get("next_api_secret"):
+            next_key = data["next_api_key"]
+            next_secret = data["next_api_secret"]
+            if hasattr(settings, "central_api_key"):
+                settings.central_api_key = next_key
+            if hasattr(settings, "central_api_secret"):
+                settings.central_api_secret = next_secret
+            settings.api_key = next_key
+            settings.api_secret = next_secret
+            settings.save(ignore_permissions=True)
+            frappe.db.commit()
+
+        return data
+
+
+
 
 
 
