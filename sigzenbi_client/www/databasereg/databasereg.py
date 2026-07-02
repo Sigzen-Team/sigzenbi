@@ -214,7 +214,36 @@ def get_database_credentials(**kwargs):
         
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
         from sigzenbi_client.utils import call_central_api
-        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=20)
+        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=20, client_name=kwargs.get("client_name"))
+        
+        # Save registered client name to allow multi-tenant polling
+        if isinstance(parsed, dict) and parsed.get("status") == "success":
+            client_name = kwargs.get("client_name")
+            if client_name:
+                res = frappe.db.sql(
+                    "SELECT value FROM tabSingles WHERE doctype='SigzenBI Subscription Settings' AND field='registered_client_names'"
+                )
+                registered_str = res[0][0] if res else ""
+                names = [n.strip() for n in registered_str.split(",") if n.strip()]
+                if client_name not in names:
+                    names.append(client_name)
+                    new_str = ",".join(names)
+                    frappe.db.sql(
+                        "INSERT INTO tabSingles (doctype, field, value) VALUES ('SigzenBI Subscription Settings', 'registered_client_names', %s) "
+                        "ON DUPLICATE KEY UPDATE value=%s",
+                        [new_str, new_str]
+                    )
+                    frappe.db.commit()
+
+                # A fresh (or re-confirmed) database registration means this client_name
+                # may now have real work to do — clear any stale "no active credential"
+                # backoff for it, and the watchdog's active-names cache, so the next
+                # scheduler tick doesn't skip spawning its poll loop over stale state.
+                from sigzenbi_client.API.gateway.poll_jobs import NO_CREDENTIAL_BACKOFF_KEY, ACTIVE_NAMES_CACHE_KEY
+
+                frappe.cache().delete_value(f"{NO_CREDENTIAL_BACKOFF_KEY}:{client_name}")
+                frappe.cache().delete_value(ACTIVE_NAMES_CACHE_KEY)
+
         return parsed
     except Exception as e:
         frappe.log_error(title="Database Proxy Error", message=f"Get Database Credentials Proxy Error: {e}")

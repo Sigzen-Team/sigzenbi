@@ -108,16 +108,25 @@ def subscription_reciver(
                             datetime.datetime.strptime(subscription_end_date, "%Y-%m-%d").date())
         frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_status", subscription_status)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "max_users", max_user)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "api_key", api_key)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "api_secret", api_secret)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "central_api_key", api_key)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "central_api_secret", api_secret)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
+
+        # Credentials are stored per-client_name (SigzenBI Client Credential), not on
+        # the shared singleton — see credentials.py. This avoids one client_name's
+        # subscription push clobbering every other identity's credentials on this bench.
+        from sigzenbi_client import credentials as client_credentials
+        client_credentials.upsert_root(client_name, api_key, api_secret, "subscription_push")
+
+        # The singleton's client_name is this site's primary identity marker — only set
+        # it here if it's not already set (bootstrap-only). A push for a non-primary
+        # identity must not be able to flip which identity is "primary" for the site.
+        existing_client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
+        if not existing_client_name:
+            frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
+
         frappe.db.set_value("SigzenBI Subscription Settings", None, "currency_vmhj", subscription_amount)
         frappe.db.set_value("SigzenBI Subscription Settings", None, "licence_no", subscription_id)
         if sigzenbi_link:
             frappe.db.set_value("SigzenBI Subscription Settings", None, "sigzenbi_link", sigzenbi_link)
-        if central_app_url:
+        if central_app_url and "superset" not in central_app_url:
             frappe.db.set_value("SigzenBI Subscription Settings", None, "sigzenbi_erp_link", central_app_url)
 
         # Create or update the admin user in SigzenBI Users
@@ -125,7 +134,7 @@ def subscription_reciver(
             user_doc = frappe.get_doc("SigzenBI Users", {"user_id": user_id})
             user_doc.user_name = user_name
             user_doc.password = password
-            user_doc.role = "Admin"
+            user_doc.role = user_id
             user_doc.save(ignore_permissions=True)
         else:
             frappe.get_doc({
@@ -133,7 +142,6 @@ def subscription_reciver(
                 "user_name": user_name,
                 "user_id": user_id,
                 "password": password,
-                "role": "Admin",
             }).insert(ignore_permissions=True)
 
         frappe.db.commit()

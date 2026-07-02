@@ -22,14 +22,9 @@ def _get_client_name():
 @frappe.whitelist(allow_guest=True)
 def generate_sql_from_question(question):
 	"""Proxy NL2SQL question to Central."""
-	client_user = None
-	if getattr(frappe.local, "request", None):
-		try:
-			from urllib.parse import unquote
-			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-		except Exception:
-			pass
-	if not client_user:
+	central_sid = frappe.request.cookies.get("central_sid") if getattr(frappe.local, "request", None) else None
+	from sigzenbi_client.utils import resolve_authenticated_user
+	if not resolve_authenticated_user(central_sid):
 		frappe.throw("Not permitted", frappe.PermissionError)
 
 	if not question or not question.strip():
@@ -57,14 +52,9 @@ def generate_sql_from_question(question):
 @frappe.whitelist(allow_guest=True)
 def create_chart_from_question(question, chart_title=None):
 	"""Proxy AI chart creation to Central."""
-	client_user = None
-	if getattr(frappe.local, "request", None):
-		try:
-			from urllib.parse import unquote
-			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-		except Exception:
-			pass
-	if not client_user:
+	central_sid = frappe.request.cookies.get("central_sid") if getattr(frappe.local, "request", None) else None
+	from sigzenbi_client.utils import resolve_authenticated_user
+	if not resolve_authenticated_user(central_sid):
 		frappe.throw("Not permitted", frappe.PermissionError)
 
 	if not question or not question.strip():
@@ -134,23 +124,6 @@ def get_suggested_questions():
 	except Exception:
 		pass
 	return []
-
-
-def _get_auth_headers():
-    """
-    Fetch current rotating API Key and API Secret from local client settings
-    and format them into the standard Frappe Authorization header.
-    """
-    doctype_name = "SigzenBI Subscription Settings"
-    if not frappe.db.exists("DocType", doctype_name):
-        doctype_name = "SigzenBI Settings" # fallback if needed
-    settings = frappe.get_doc(doctype_name)
-    api_key = getattr(settings, "central_api_key", None) or settings.api_key
-    api_secret = settings.get_password("central_api_secret") if (hasattr(settings, "central_api_secret") and settings.central_api_secret) else settings.get_password("api_secret") if settings.api_secret else ""
-    
-    return {
-        "Authorization": f"token {api_key}:{api_secret}"
-    }
 
 
 def _get_client_name():

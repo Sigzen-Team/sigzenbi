@@ -19,23 +19,10 @@ def fetch_subscription_details(client_name):
 		frappe.throw("Central ERP Link is not set in SigzenBI Subscription Settings.")
 
 	url = f"{base_url}api/method/sigzenbi_central.API.send_subscription_details.send_subscription_details"
-	
-	# Retrieve API credentials dynamically from Settings
-	api_key = frappe.db.get_single_value('SigzenBI Subscription Settings', 'api_key')
-	from frappe.utils.password import get_decrypted_password
-	api_secret = get_decrypted_password('SigzenBI Subscription Settings', 'SigzenBI Subscription Settings', 'api_secret')
-	
+
 	try:
-		response = requests.post(
-			url,
-			json={"client_name": client_name},
-			headers={
-				"Authorization": f"token {api_key}:{api_secret}",
-				"Content-Type": "application/json"
-			}
-		)
-		response.raise_for_status()
-		return response.json()
+		from sigzenbi_client.utils import call_central_api
+		return call_central_api(url, payload={"client_name": client_name}, method="POST", client_name=client_name)
 	except Exception as e:
 		frappe.log_error(title="Failed to fetch subscription details", message=frappe.get_traceback())
 		frappe.throw("Failed to fetch subscription details from central server.")
