@@ -39,23 +39,26 @@ def update_stored_credentials(next_key, next_secret):
         frappe.db.commit()
 
 
-def poll_and_execute_jobs():
+def poll_and_execute_jobs(client_name=None):
     """
     Self-perpetuating long-poll loop running as a Frappe background job.
     Each cycle: polls Central for a pending SQL job → executes it → posts result → re-enqueues self.
     """
-    frappe.cache().set_value(POLL_HEARTBEAT_KEY, 1, expires_in_sec=90)
+    if not client_name:
+        client_name = _client_name()
+
+    heartbeat_key = f"{POLL_HEARTBEAT_KEY}:{client_name}"
+    frappe.cache().set_value(heartbeat_key, 1, expires_in_sec=90)
 
     central_url = _central_url()
-    client_name = _client_name()
     secret = _secret()
 
     if not central_url or not client_name or not secret:
         frappe.log_error(
             title="SigzenBI Poll Loop",
-            message="Missing sigzenbi_erp_link, client_name, or sigzen_gateway_shared_secret — cannot poll."
+            message=f"Missing sigzenbi_erp_link, client_name ({client_name}), or sigzen_gateway_shared_secret — cannot poll."
         )
-        _reenqueue()
+        _reenqueue(client_name=client_name)
         return
 
     try:
@@ -87,7 +90,7 @@ def poll_and_execute_jobs():
     except Exception:
         frappe.log_error(title="SigzenBI Poll Loop Error", message=frappe.get_traceback())
 
-    _reenqueue()
+    _reenqueue(client_name=client_name)
 
 
 def _execute_and_submit(central_url, client_name, secret, job):
@@ -95,7 +98,17 @@ def _execute_and_submit(central_url, client_name, secret, job):
     sql = job.get("sql")
     params = job.get("params") or {}
 
+    frappe.log_error(
+        title="SigzenBI Gateway: Executing job",
+        message=f"job_id: {job_id}\nSQL: {sql}\nParams: {params}"
+    )
+
     success, columns, rows, error = execute_read_query(sql, params)
+
+    frappe.log_error(
+        title="SigzenBI Gateway: Execution result",
+        message=f"job_id: {job_id}\nSuccess: {success}\nRows count: {len(rows) if rows else 0}\nError: {error}"
+    )
 
     try:
         api_key, api_secret = get_stored_credentials()
@@ -127,12 +140,13 @@ def _execute_and_submit(central_url, client_name, secret, job):
         frappe.log_error(title="SigzenBI Submit Result Error", message=frappe.get_traceback())
 
 
-def _reenqueue():
+def _reenqueue(client_name=None):
     frappe.enqueue(
         "sigzenbi_client.API.gateway.poll_jobs.poll_and_execute_jobs",
         queue="short",
         is_async=True,
         now=False,
+        client_name=client_name,
     )
 
 
@@ -141,7 +155,11 @@ def check_and_start_polling_loop():
     Watchdog — called by Frappe scheduler every minute via hooks.py.
     Restarts the poll loop if the heartbeat key has expired (loop died or never started).
     """
-    alive = frappe.cache().get_value(POLL_HEARTBEAT_KEY)
-    if not alive:
-        frappe.logger("sigzen_gateway").info("SigzenBI poll loop heartbeat missing — restarting.")
-        _reenqueue()
+    for name in (_client_name(), "c", "test"):
+        if not name:
+            continue
+        heartbeat_key = f"{POLL_HEARTBEAT_KEY}:{name}"
+        alive = frappe.cache().get_value(heartbeat_key)
+        if not alive:
+            frappe.logger("sigzen_gateway").info(f"SigzenBI poll loop heartbeat missing for '{name}' — restarting.")
+            _reenqueue(client_name=name)

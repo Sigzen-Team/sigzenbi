@@ -21,6 +21,10 @@ def execute_query(job_id=None, client_name=None, sql=None, params=None, database
 	try:
 		ok, err = validate_gateway_request(secret=secret, client_name=client_name)
 		if not ok:
+			frappe.log_error(
+				title="Sigzen Gateway Validation Failure",
+				message=f"Validation failed: {err}\nRequest client_name: {client_name}\nRequest secret: {secret}"
+			)
 			return _failure(err)
 
 		if not sql or not isinstance(sql, str) or not sql.strip():
