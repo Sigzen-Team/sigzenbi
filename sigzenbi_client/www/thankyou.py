@@ -48,7 +48,6 @@ def get_context(context):
                     from urllib.parse import unquote
                     client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
                     central_sid = frappe.request.cookies.get("central_sid")
-                    frappe.log_error(title="thankyou_debug", message=f"client_user={client_user}, central_sid={central_sid}, cookies={dict(frappe.request.cookies)}")
                 except Exception:
                     pass
 

@@ -4,6 +4,12 @@ import frappe
 def send_role_mapping(user_name):
     """Send role mapping to the client."""
     try:
+        central_sid = frappe.request.cookies.get("central_sid") if getattr(frappe.local, "request", None) else None
+        from sigzenbi_client.utils import resolve_authenticated_user
+        caller = resolve_authenticated_user(central_sid)
+        if not caller or caller != user_name:
+            return {"status": "error", "message": "Not permitted"}
+
         # Log the start of the process
         frappe.logger().info(f"Fetching role mapping for user: {user_name}")
 

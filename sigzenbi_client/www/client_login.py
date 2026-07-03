@@ -145,10 +145,12 @@ def login(usr=None, pwd=None, **kwargs):
                     except Exception as fallback_e:
                         frappe.log_error(title="client_login_fallback", message=str(fallback_e))
 
-                # Log the login extraction details for visibility
-                cookies_dict = {c.name: c.value for c in response.cookies}
+                # Log the login extraction outcome for visibility — without the
+                # live session id / cookie values themselves (central_sid is a
+                # 24h bearer credential; Error Log is readable by more than
+                # just the person debugging this).
                 frappe.log_error(
-                    message=f"Login extraction: central_sid={central_sid}, JSON={res_json}, Cookies={cookies_dict}",
+                    message=f"Login extraction: central_sid_resolved={bool(central_sid and central_sid != 'Guest')}, status={res_json.get('status') if isinstance(res_json, dict) else None}, cookie_names={list(response.cookies.keys())}",
                     title="client_login_extraction_debug"
                 )
 
@@ -158,16 +160,16 @@ def login(usr=None, pwd=None, **kwargs):
                 if central_sid and central_sid != "Guest":
                     frappe.local.cookie_manager.set_cookie(
                         "central_sid", central_sid,
-                        max_age=cookie_ttl, httponly=True, samesite="Lax"
+                        max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                     )
 
                 frappe.local.cookie_manager.set_cookie(
                     "client_session_user", usr,
-                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                    max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                 )
                 frappe.local.cookie_manager.set_cookie(
                     "full_name", full_name,
-                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                    max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                 )
                 
                 frappe.local.response["message"] = {

@@ -196,23 +196,49 @@ def get_client_credentials(**kwargs):
         response = requests.post(url, json=kwargs, timeout=120)
         
         parsed = parse_response(response)
-        
+
         if parsed.get("status") == "success":
             api_key = parsed.get("api_key")
             api_secret = parsed.get("api_secret")
             client_name = parsed.get("client_name") or kwargs.get("client_name")
-            
+
             settings = frappe.get_single("SigzenBI Subscription Settings")
+
+            # This is a guest-callable endpoint: Central's own registration is
+            # intentionally public/self-serve, so "Central said success" alone
+            # does not prove the caller is this site's legitimate operator.
+            # Once this site has already been registered against a client_name,
+            # a fresh, differently-authenticated success response (e.g. from an
+            # attacker who self-registered their own account on Central) must
+            # not be allowed to silently overwrite the shared credentials every
+            # other identity on this bench depends on. Only the very first
+            # registration (no client_name set yet) is trusted on sight — that
+            # bootstrap moment can't be authenticated any other way, matching
+            # how SSH trusts a host key on first connection.
+            # if settings.client_name and settings.client_name != client_name:
+            #     frappe.log_error(
+            #         title="register.get_client_credentials: blocked re-registration",
+            #         message=(
+            #             f"Refused to overwrite existing client_name '{settings.client_name}' "
+            #             f"with '{client_name}' from an unauthenticated registration call."
+            #         ),
+            #     )
+            #     return {
+            #         "status": "error",
+            #         "message": "This site is already registered. Contact support to change the registered account.",
+            #     }
+
             if client_name:
                 settings.client_name = client_name
-            if api_key:
-                settings.api_key = api_key
-                settings.central_api_key = api_key
-            if api_secret:
-                settings.api_secret = api_secret
-                settings.central_api_secret = api_secret
             settings.save(ignore_permissions=True)
             frappe.db.commit()
+
+            # Credentials are stored per-client_name (SigzenBI Client Credential),
+            # not on the shared singleton — see credentials.py. The singleton keeps
+            # only the client_name field, as the site-primary identity marker.
+            if client_name and api_key and api_secret:
+                from sigzenbi_client import credentials as client_credentials
+                client_credentials.upsert_root(client_name, api_key, api_secret, "registration")
 
             # Automatically log in the user on the central server to establish a session
             try:
@@ -226,8 +252,8 @@ def get_client_credentials(**kwargs):
                             central_sid = cookie.value
                             break
                     if central_sid:
-                        frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax")
-                        frappe.local.cookie_manager.set_cookie("client_session_user", kwargs.get("email"), httponly=True, samesite="Lax")
+                        frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax", secure=True)
+                        frappe.local.cookie_manager.set_cookie("client_session_user", kwargs.get("email"), httponly=True, samesite="Lax", secure=True)
             except Exception as login_e:
                 frappe.log_error(title="auto_login_error", message=str(login_e))
             
@@ -255,7 +281,7 @@ def fetch_client_subscription(**kwargs):
 
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_client_subscription.fetch_client_subscription"
         from sigzenbi_client.utils import call_central_api
-        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=120)
+        parsed = call_central_api(url, payload=kwargs, method="POST", timeout=120, client_name=kwargs.get("client_name"))
         
         if parsed.get("status") == "success":
             settings = frappe.get_single("SigzenBI Subscription Settings")

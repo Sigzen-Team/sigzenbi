@@ -23,7 +23,7 @@ def execute_query(job_id=None, client_name=None, sql=None, params=None, database
 		if not ok:
 			frappe.log_error(
 				title="Sigzen Gateway Validation Failure",
-				message=f"Validation failed: {err}\nRequest client_name: {client_name}\nRequest secret: {secret}"
+				message=f"Validation failed: {err}\nRequest client_name: {client_name}\nsecret_provided={bool(secret)}"
 			)
 			return _failure(err)
 
