@@ -8,16 +8,14 @@ def get_context(context):
 	context.no_cache = 1
 	context.show_sidebar = False
 
-	client_user = None
-	if getattr(frappe.local, "request", None):
-		try:
-			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-		except Exception:
-			pass
+	# Identity: a live ERP session wins over a stale client_session_user cookie
+	# (re-vouches on account switch, fails closed) — same resolver as the dashboard.
+	from sigzenbi_client.utils import resolve_bi_user
+	_, client_user = resolve_bi_user()
 
 	if not client_user:
 		from sigzenbi_client.utils import redirect_without_port
-		redirect_without_port("/client_login")
+		redirect_without_port("/portal/login")
 
 	context.user_email = client_user
 	context.user_name = frappe.db.get_value("User", client_user, "full_name") or client_user
@@ -96,6 +94,22 @@ def get_context(context):
 			central_html = central_html.replace(
 				"sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
 				"sigzenbi_client.API.ai_proxy.generate_sql_from_question"
+			)
+			central_html = central_html.replace(
+				"sigzenbi_central.API.ai.nl2sql_api.preview_query_from_question",
+				"sigzenbi_client.API.ai_proxy.preview_query_from_question"
+			)
+			central_html = central_html.replace(
+				"sigzenbi_central.API.ai.nl2sql_api.save_chart_from_sql",
+				"sigzenbi_client.API.ai_proxy.save_chart_from_sql"
+			)
+			central_html = central_html.replace(
+				"sigzenbi_central.API.ai.chat_dashboard.",
+				"sigzenbi_client.API.ai_proxy."
+			)
+			central_html = central_html.replace(
+				"sigzenbi_central.API.ai.chat_api.",
+				"sigzenbi_client.API.ai_proxy."
 			)
 
 		context.html_content = central_html

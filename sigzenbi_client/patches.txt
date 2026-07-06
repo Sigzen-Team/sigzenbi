@@ -4,3 +4,4 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+sigzenbi_client.patches.v1_0.seed_sigzenbi_client_credentials

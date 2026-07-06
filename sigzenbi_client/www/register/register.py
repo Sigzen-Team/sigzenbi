@@ -5,6 +5,17 @@ import requests
 import json
 
 def get_context(context):
+    # /register/register is retired as a page — BI signup lives at /portal/signup.
+    # Unconditional 301 there, forwarding the ?plan= query so the prefill survives.
+    # Target host/path are static; only the (host-neutral) query string is request-derived.
+    from sigzenbi_client.utils import redirect_without_port
+    qs = ""
+    if getattr(frappe.local, "request", None) and frappe.request.query_string:
+        qs = frappe.request.query_string.decode()
+    redirect_without_port("/portal/signup" + (("?" + qs) if qs else ""))
+
+
+def render_signup(context):
     if "sigzenbi_client" not in frappe.get_installed_apps():
         try:
             from frappe.installer import install_app
@@ -14,6 +25,13 @@ def get_context(context):
         except Exception as e:
             import traceback
             frappe.log_error(title="App Installer", message=f"Failed programmatically installing sigzenbi_client: {e}\n{traceback.format_exc()}")
+
+    # Already-registered guard: once this site has a primary client_name, signup is done.
+    # Re-showing the self-serve form is confusing and a re-submit re-provisions/overwrites,
+    # so send an already-registered visitor straight to the login instead of the form.
+    if frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name'):
+        frappe.local.flags.redirect_location = "/portal/login"
+        raise frappe.Redirect
 
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
@@ -74,10 +92,15 @@ def get_context(context):
     # Fetch from HTTP
     if base_url:
         try:
-            url = f"{base_url}register/register"
+            # Method fetch (not a public-page GET) so Central's /register/register page
+            # can be closed. Same pattern as the login-template mirror in client_login.py.
+            url = f"{base_url}api/method/sigzenbi_central.www.register.register.get_register_template"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
-                central_html = response.text
+                try:
+                    central_html = response.json().get("message", response.text)
+                except Exception:
+                    central_html = response.text
         except Exception as e:
             frappe.log_error(title="register", message=f"Error fetching central register.html: {e}")
                 
@@ -215,18 +238,18 @@ def get_client_credentials(**kwargs):
             # registration (no client_name set yet) is trusted on sight — that
             # bootstrap moment can't be authenticated any other way, matching
             # how SSH trusts a host key on first connection.
-            # if settings.client_name and settings.client_name != client_name:
-            #     frappe.log_error(
-            #         title="register.get_client_credentials: blocked re-registration",
-            #         message=(
-            #             f"Refused to overwrite existing client_name '{settings.client_name}' "
-            #             f"with '{client_name}' from an unauthenticated registration call."
-            #         ),
-            #     )
-            #     return {
-            #         "status": "error",
-            #         "message": "This site is already registered. Contact support to change the registered account.",
-            #     }
+            if settings.client_name and settings.client_name != client_name:
+                frappe.log_error(
+                    title="register.get_client_credentials: blocked re-registration",
+                    message=(
+                        f"Refused to overwrite existing client_name '{settings.client_name}' "
+                        f"with '{client_name}' from an unauthenticated registration call."
+                    ),
+                )
+                return {
+                    "status": "error",
+                    "message": "This site is already registered. Contact support to change the registered account.",
+                }
 
             if client_name:
                 settings.client_name = client_name

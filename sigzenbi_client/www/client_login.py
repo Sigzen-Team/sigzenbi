@@ -4,24 +4,34 @@ import frappe.sessions
 from frappe import _
 import requests
 
+from sigzenbi_client.utils import resolve_bi_user, redirect_without_port
+
 def get_context(context):
+    # /client_login is retired as a page — the branded BI login lives at /portal/login.
+    # Unconditional 301 to the static literal target (www/portal/login.py calls
+    # render_bi_login below for the real logic). Old links/logout JS still land right.
+    redirect_without_port("/portal/login")  # raises frappe.Redirect (301)
+
+
+def render_bi_login(context):
     context.no_cache = 1
 
-    # If the user already has a valid BI session, send them straight to the dashboard.
-    if getattr(frappe.local, "request", None):
-        try:
-            from urllib.parse import unquote
-            existing_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-            if existing_user:
-                from sigzenbi_client.utils import redirect_without_port
-                redirect_without_port("/client_dashboard")
-        except Exception:
-            pass
+    # Resolution order (fail-closed), all inside the audited/tested resolve_bi_user:
+    # (1) valid BI session or (2) live ERP session auto-SSO'd -> dashboard;
+    # (3) neither -> render the login form below. Never inline the ordering here.
+    # The redirect carries no trust: /client_dashboard re-resolves identity itself.
+    central_sid, client_user = resolve_bi_user()
+    if client_user:
+        redirect_without_port("/client_dashboard")  # raises frappe.Redirect (301)
 
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
         base_url += '/'
     context.central_url = base_url
+
+    # Only advertise self-serve signup on a not-yet-registered site; once client_name
+    # is set /portal/signup just 301s back to /portal/login, so hiding the link avoids a bounce.
+    context.show_signup = not frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name')
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 

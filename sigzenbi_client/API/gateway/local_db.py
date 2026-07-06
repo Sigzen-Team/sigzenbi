@@ -133,16 +133,16 @@ def _normalize_params(params):
 def execute_read_query(sql, params=None):
 	"""
 	Execute a read-only SQL query against the local analytics database.
-	Returns (success, columns, rows, error_message).
+	Returns (success, columns, rows, error_message, columns_typed).
 	"""
 	ok, err = is_read_only_sql(sql)
 	if not ok:
-		return False, [], [], err
+		return False, [], [], err, []
 
 	try:
 		query_params = _normalize_params(params)
 	except ValueError as exc:
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 
 	config = get_db_config()
 	if config.get("use_frappe_db"):
@@ -163,22 +163,20 @@ def _execute_via_frappe(sql, query_params):
 			rows = frappe.db.sql(sql, query_params, as_dict=False)
 		else:
 			rows = frappe.db.sql(sql, as_dict=False)
-		columns = (
-			[desc[0] for desc in frappe.db._cursor.description]
-			if frappe.db._cursor.description
-			else []
-		)
-		return True, columns, _sanitize_rows(rows), None
+		_desc = frappe.db._cursor.description or []
+		columns = [d[0] for d in _desc]
+		columns_typed = [{"name": d[0], "type_code": d[1]} for d in _desc]
+		return True, columns, _sanitize_rows(rows), None, columns_typed
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 
 
 def _execute_via_pymysql(sql, query_params, config):
 	try:
 		import pymysql
 	except ImportError:
-		return False, [], [], "pymysql is required for custom local database connections."
+		return False, [], [], "pymysql is required for custom local database connections.", []
 
 	connection = None
 	try:
@@ -198,11 +196,13 @@ def _execute_via_pymysql(sql, query_params, config):
 			cursor.execute(f"SET SESSION MAX_STATEMENT_TIME={QUERY_TIMEOUT_SECONDS * 1000}")
 			cursor.execute(sql, query_params or None)
 			rows = cursor.fetchall()
-			columns = [desc[0] for desc in cursor.description] if cursor.description else []
-		return True, columns, _sanitize_rows(rows), None
+			_desc = cursor.description or []
+			columns = [d[0] for d in _desc]
+			columns_typed = [{"name": d[0], "type_code": d[1]} for d in _desc]
+		return True, columns, _sanitize_rows(rows), None, columns_typed
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 	finally:
 		if connection:
 			connection.close()

@@ -3,23 +3,84 @@ import frappe.sessions
 from urllib.parse import unquote
 import requests
 
+
+def _vouch_for_logged_in_user(visitor):
+    """phase1-2 Task 2B: SSO entry for a visitor already logged into THIS
+    client site's own Frappe session (e.g. an invited, passwordless-on-Central
+    user) but with no central_sid cookie yet. Vouches for them with Central
+    using this tenant's per-tenant gateway_secret (C3) instead of falling back
+    to the BI login form. Returns (central_sid, client_user) on success, or
+    (None, None) on ANY failure — never sets cookies on a partial result."""
+    base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
+    if base_url and not base_url.endswith('/'):
+        base_url += '/'
+    if not base_url:
+        return None, None
+
+    from sigzenbi_client.API.dashboard_api import _resolve_client_name_for_email
+    from sigzenbi_client import credentials as client_credentials
+    from sigzenbi_client.utils import get_singleton_client_name
+    from frappe.utils.password import get_decrypted_password
+
+    client_name = _resolve_client_name_for_email(visitor) or get_singleton_client_name()
+    if not client_name:
+        return None, None
+    # Fix 4 (2026-07-04 hardening): use ONLY this tenant's own per-tenant
+    # gateway_secret here, never credentials.get_gateway_secret()'s
+    # global-secret fallback. That fallback is meant for Central authenticating
+    # TO this (trusted) client on the transport path; here we'd be the ones
+    # POSTing the secret we hold OVER THE NETWORK to Central, and the global
+    # secret is shared by every client_name on this bench, so sending it here
+    # has a much bigger blast radius if intercepted/misused. No per-tenant row
+    # yet -> skip the vouch and fall through to the normal login form, rather
+    # than ever transmit the global secret.
+    secret = None
+    if frappe.db.exists(client_credentials.DOCTYPE, client_name):
+        secret = get_decrypted_password(client_credentials.DOCTYPE, client_name, "gateway_secret", raise_exception=False)
+    if not secret:
+        return None, None
+
+    try:
+        response = requests.post(
+            f"{base_url}api/method/sigzenbi_central.www.client_login.vouch_login",
+            json={"client_name": client_name, "user": visitor, "secret": secret},
+            timeout=10,
+        )
+        if not response.ok:
+            return None, None
+        message = response.json().get("message") or {}
+        sid = message.get("sid")
+        if not sid or not message.get("success"):
+            return None, None
+    except Exception:
+        frappe.log_error(title="client_dashboard_vouch", message="vouch_login request failed (see traceback, no secret/sid logged)")
+        return None, None
+
+    cookie_ttl = 86400
+    frappe.local.cookie_manager.set_cookie(
+        "central_sid", sid, max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
+    )
+    frappe.local.cookie_manager.set_cookie(
+        "client_session_user", visitor, max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
+    )
+    return sid, visitor
+
+
 def get_context(context):
     context.no_cache = 1
 
-    # Retrieve client user from client_session_user cookie
-    client_user = None
-    central_sid = None
-    if getattr(frappe.local, "request", None):
-        try:
-            client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-            central_sid = frappe.request.cookies.get("central_sid")
-        except Exception:
-            pass
-    
-    # Redirect to client_login if not logged in via client_login.html
+    # Identity: a LIVE ERP session wins over a stale client_session_user cookie.
+    # resolve_bi_user re-vouches as the ERP user when they differ (fixes the
+    # stale-cookie bleed where switching ERP accounts kept the previous BI session)
+    # and fails closed if that re-vouch fails. Still handles the normal invited-member
+    # entry (no cookie yet + a vouchable ERP session) and the BI-login-form session.
+    from sigzenbi_client.utils import resolve_bi_user
+    central_sid, client_user = resolve_bi_user()
+
+    # Redirect to client_login if still not logged in (no BI cookies, no vouch-able session)
     if not client_user:
         from sigzenbi_client.utils import redirect_without_port
-        redirect_without_port("/client_login")
+        redirect_without_port("/portal/login")
 
     user = client_user
 
