@@ -16,6 +16,30 @@ BLOCKED_KEYWORDS = re.compile(
 # SELECT ... INTO OUTFILE/DUMPFILE writes files to the DB server — block it explicitly.
 _INTO_FILE_RE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
+# This gateway is meant for BI/analytics queries against business doctypes — it has no
+# legitimate reason to read Frappe's own auth/credential tables. A read-only statement
+# blocklist alone still allows e.g. `SELECT * FROM __Auth` (password hashes) or
+# `SELECT * FROM tabUser` (API keys, session fields) or `tabSingles` (which holds the
+# encrypted SigzenBI Subscription Settings / SigzenBI Settings credentials). Block these
+# regardless of statement type. Matches both bare identifiers (`tabUser`, real SQL syntax
+# doesn't allow embedded spaces there, so this can't false-positive on a differently named
+# table) and quoted-and-immediately-closed identifiers (`` `tabUser` ``/`"tabUser"`) —
+# deliberately does NOT match longer names like `tabUser Permission` that merely start
+# with the same prefix, since Frappe's own tables commonly use spaces in their names.
+_SENSITIVE_TABLES = ("__Auth", "tabUser", "tabSingles")
+_SENSITIVE_TABLE_RE = re.compile(
+	r"(\b(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")\b"
+	r"|`(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")`"
+	r"|\"(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")\")",
+	re.IGNORECASE,
+)
+
+# Per-query timeout (seconds) so a holder of a valid gateway secret can't tie up the
+# database with SLEEP()/BENCHMARK()/expensive scans — a statement-type blocklist can't
+# enumerate every CPU/lock-exhausting function name, so this is enforced at the
+# connection/session level instead.
+QUERY_TIMEOUT_SECONDS = 25
+
 
 def _get_executable_sql(sql):
 	# Remove block comments /* ... */
@@ -50,6 +74,9 @@ def is_read_only_sql(sql):
 
 	if _INTO_FILE_RE.search(executable_sql):
 		return False, "SELECT INTO OUTFILE/DUMPFILE is not allowed."
+
+	if _SENSITIVE_TABLE_RE.search(executable_sql):
+		return False, "Querying Frappe's core auth/settings tables through this gateway is not allowed."
 
 	return True, None
 
@@ -106,16 +133,16 @@ def _normalize_params(params):
 def execute_read_query(sql, params=None):
 	"""
 	Execute a read-only SQL query against the local analytics database.
-	Returns (success, columns, rows, error_message).
+	Returns (success, columns, rows, error_message, columns_typed).
 	"""
 	ok, err = is_read_only_sql(sql)
 	if not ok:
-		return False, [], [], err
+		return False, [], [], err, []
 
 	try:
 		query_params = _normalize_params(params)
 	except ValueError as exc:
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 
 	config = get_db_config()
 	if config.get("use_frappe_db"):
@@ -129,26 +156,27 @@ def _execute_via_frappe(sql, query_params):
 		frappe.connect()
 		# Enable ANSI_QUOTES to support SQL compiled with ANSI double-quoted identifiers
 		frappe.db.sql("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
+		# Cap execution time so a holder of a valid gateway secret can't hold the
+		# database with SLEEP()/BENCHMARK()/an expensive scan — MariaDB-native.
+		frappe.db.sql(f"SET SESSION MAX_STATEMENT_TIME={QUERY_TIMEOUT_SECONDS * 1000}")
 		if query_params:
 			rows = frappe.db.sql(sql, query_params, as_dict=False)
 		else:
 			rows = frappe.db.sql(sql, as_dict=False)
-		columns = (
-			[desc[0] for desc in frappe.db._cursor.description]
-			if frappe.db._cursor.description
-			else []
-		)
-		return True, columns, _sanitize_rows(rows), None
+		_desc = frappe.db._cursor.description or []
+		columns = [d[0] for d in _desc]
+		columns_typed = [{"name": d[0], "type_code": d[1]} for d in _desc]
+		return True, columns, _sanitize_rows(rows), None, columns_typed
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 
 
 def _execute_via_pymysql(sql, query_params, config):
 	try:
 		import pymysql
 	except ImportError:
-		return False, [], [], "pymysql is required for custom local database connections."
+		return False, [], [], "pymysql is required for custom local database connections.", []
 
 	connection = None
 	try:
@@ -164,13 +192,17 @@ def _execute_via_pymysql(sql, query_params, config):
 		with connection.cursor() as cursor:
 			# Enable ANSI_QUOTES to support SQL compiled with ANSI double-quoted identifiers
 			cursor.execute("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
+			# Cap execution time — see the matching comment in _execute_via_frappe.
+			cursor.execute(f"SET SESSION MAX_STATEMENT_TIME={QUERY_TIMEOUT_SECONDS * 1000}")
 			cursor.execute(sql, query_params or None)
 			rows = cursor.fetchall()
-			columns = [desc[0] for desc in cursor.description] if cursor.description else []
-		return True, columns, _sanitize_rows(rows), None
+			_desc = cursor.description or []
+			columns = [d[0] for d in _desc]
+			columns_typed = [{"name": d[0], "type_code": d[1]} for d in _desc]
+		return True, columns, _sanitize_rows(rows), None, columns_typed
 	except Exception as exc:
 		frappe.log_error(title="Sigzen Gateway SQL Error", message=frappe.get_traceback())
-		return False, [], [], str(exc)
+		return False, [], [], str(exc), []
 	finally:
 		if connection:
 			connection.close()

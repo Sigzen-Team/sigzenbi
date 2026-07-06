@@ -20,7 +20,7 @@ def _validate_central_secret(secret):
 
 
 @frappe.whitelist(allow_guest=True)
-def fetch_first_user(user_name, client_name, first_name, last_name, email, password, secret=None):
+def fetch_first_user(user_name, client_name, first_name, last_name, email, password, secret=None, gateway_secret=None):
     """
     Called by Central during client registration to create the first admin user on this site.
     Protected by the gateway shared secret — only Central can call this.
@@ -36,6 +36,12 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
             "ON DUPLICATE KEY UPDATE value=%s",
             ["SigzenBI Subscription Settings", client_name, client_name]
         )
+
+        # C3: persist this tenant's per-client_name transport secret (if Central
+        # sent one) so its poll loop authenticates to the gateway per-tenant.
+        if gateway_secret:
+            from sigzenbi_client import credentials as client_credentials
+            client_credentials.set_gateway_secret(client_name, gateway_secret)
 
         # Create Frappe User if it doesn't exist
         if not frappe.db.exists("User", email):

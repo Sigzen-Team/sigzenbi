@@ -4,24 +4,34 @@ import frappe.sessions
 from frappe import _
 import requests
 
+from sigzenbi_client.utils import resolve_bi_user, redirect_without_port
+
 def get_context(context):
+    # /client_login is retired as a page — the branded BI login lives at /portal/login.
+    # Unconditional 301 to the static literal target (www/portal/login.py calls
+    # render_bi_login below for the real logic). Old links/logout JS still land right.
+    redirect_without_port("/portal/login")  # raises frappe.Redirect (301)
+
+
+def render_bi_login(context):
     context.no_cache = 1
 
-    # If the user already has a valid BI session, send them straight to the dashboard.
-    if getattr(frappe.local, "request", None):
-        try:
-            from urllib.parse import unquote
-            existing_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-            if existing_user:
-                from sigzenbi_client.utils import redirect_without_port
-                redirect_without_port("/client_dashboard")
-        except Exception:
-            pass
+    # Resolution order (fail-closed), all inside the audited/tested resolve_bi_user:
+    # (1) valid BI session or (2) live ERP session auto-SSO'd -> dashboard;
+    # (3) neither -> render the login form below. Never inline the ordering here.
+    # The redirect carries no trust: /client_dashboard re-resolves identity itself.
+    central_sid, client_user = resolve_bi_user()
+    if client_user:
+        redirect_without_port("/client_dashboard")  # raises frappe.Redirect (301)
 
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if base_url and not base_url.endswith('/'):
         base_url += '/'
     context.central_url = base_url
+
+    # Only advertise self-serve signup on a not-yet-registered site; once client_name
+    # is set /portal/signup just 301s back to /portal/login, so hiding the link avoids a bounce.
+    context.show_signup = not frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name')
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 
@@ -145,10 +155,12 @@ def login(usr=None, pwd=None, **kwargs):
                     except Exception as fallback_e:
                         frappe.log_error(title="client_login_fallback", message=str(fallback_e))
 
-                # Log the login extraction details for visibility
-                cookies_dict = {c.name: c.value for c in response.cookies}
+                # Log the login extraction outcome for visibility — without the
+                # live session id / cookie values themselves (central_sid is a
+                # 24h bearer credential; Error Log is readable by more than
+                # just the person debugging this).
                 frappe.log_error(
-                    message=f"Login extraction: central_sid={central_sid}, JSON={res_json}, Cookies={cookies_dict}",
+                    message=f"Login extraction: central_sid_resolved={bool(central_sid and central_sid != 'Guest')}, status={res_json.get('status') if isinstance(res_json, dict) else None}, cookie_names={list(response.cookies.keys())}",
                     title="client_login_extraction_debug"
                 )
 
@@ -158,16 +170,16 @@ def login(usr=None, pwd=None, **kwargs):
                 if central_sid and central_sid != "Guest":
                     frappe.local.cookie_manager.set_cookie(
                         "central_sid", central_sid,
-                        max_age=cookie_ttl, httponly=True, samesite="Lax"
+                        max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                     )
 
                 frappe.local.cookie_manager.set_cookie(
                     "client_session_user", usr,
-                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                    max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                 )
                 frappe.local.cookie_manager.set_cookie(
                     "full_name", full_name,
-                    max_age=cookie_ttl, httponly=True, samesite="Lax"
+                    max_age=cookie_ttl, httponly=True, samesite="Lax", secure=True
                 )
                 
                 frappe.local.response["message"] = {

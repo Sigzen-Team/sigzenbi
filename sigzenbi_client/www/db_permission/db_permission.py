@@ -7,7 +7,7 @@ def get_context(context):
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')
     if status != "Active":
         from sigzenbi_client.utils import redirect_without_port
-        redirect_without_port("/register/register")
+        redirect_without_port("/portal/signup")
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 

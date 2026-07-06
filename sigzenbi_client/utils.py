@@ -214,7 +214,7 @@ def get_singleton_client_name():
     return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
 
 
-def call_central_api(endpoint_url, payload=None, method="POST", headers=None, cookies=None, timeout=15, client_name=None):
+def call_central_api(endpoint_url, payload=None, method="POST", headers=None, cookies=None, timeout=60, client_name=None):
     """
     Sends request to Central with current credentials and atomically
     saves the next rotated credentials returned in the response.
@@ -352,3 +352,62 @@ def update_subscription_credentials(next_key, next_secret):
 
 
 
+
+
+def _clear_bi_cookies():
+    """Expire the three BI session cookies (client_session_user/full_name/central_sid)."""
+    cm = getattr(frappe.local, "cookie_manager", None)
+    if not cm:
+        return
+    for name in ("client_session_user", "full_name", "central_sid"):
+        try:
+            cm.delete_cookie(name)
+        except Exception:
+            pass
+
+
+def resolve_bi_user():
+    """Single source of truth for "who is this BI request". A LIVE ERP (client-Frappe)
+    session wins over a stale `client_session_user` cookie: when a real ERP user is
+    logged in and differs from the cookie, re-vouch as the ERP user (fixes the
+    stale-cookie identity bleed where switching ERP accounts in one browser kept the
+    previous BI session — e.g. a member acting as the org owner). Fails CLOSED: if that
+    re-vouch fails (bad/expired/non-member ERP session) the stale cookie is cleared and
+    no BI session is returned — never a fall-back to someone else's cookie. Identity is
+    never taken from a request param. On a successful (re-)vouch the fresh BI cookies are
+    set by _vouch_for_logged_in_user. Returns (central_sid, client_user) or (None, None)."""
+    from urllib.parse import unquote
+
+    client_user = ""
+    central_sid = None
+    if getattr(frappe.local, "request", None):
+        try:
+            client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
+            central_sid = frappe.request.cookies.get("central_sid")
+        except Exception:
+            pass
+
+    visitor = None
+    sess = getattr(frappe, "session", None)
+    if sess and sess.user and sess.user != "Guest":
+        visitor = sess.user
+
+    # A live ERP session that differs from the BI cookie wins — re-vouch as them.
+    if visitor and visitor != client_user:
+        from sigzenbi_client.www.client_dashboard import _vouch_for_logged_in_user
+        new_sid, new_user = _vouch_for_logged_in_user(visitor)
+        if new_user:
+            return new_sid, new_user
+        # Fail closed: differing ERP user isn't a vouchable BI member — do NOT keep
+        # showing a different person's session; drop the stale cookie.
+        if client_user:
+            _clear_bi_cookies()
+        return None, None
+
+    # No BI cookie yet but a vouchable ERP session (normal invited-member entry).
+    if not client_user and visitor:
+        from sigzenbi_client.www.client_dashboard import _vouch_for_logged_in_user
+        return _vouch_for_logged_in_user(visitor)
+
+    # Same user as the cookie, or a BI-login-form session with no ERP session: keep it.
+    return central_sid, client_user

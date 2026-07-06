@@ -24,7 +24,14 @@ def _client_name():
     )
 
 
-def _secret():
+def _secret(client_name=None):
+    """Transport secret for a gateway call. With a client_name, returns that
+    tenant's per-client_name gateway_secret (C3), falling back to the shared
+    singleton during migration. Without one (the active-clients listing, which
+    is intentionally global), returns the shared singleton directly."""
+    if client_name:
+        from sigzenbi_client import credentials as client_credentials
+        return client_credentials.get_gateway_secret(client_name)
     return frappe.conf.get("sigzen_gateway_shared_secret")
 
 
@@ -121,7 +128,7 @@ def poll_and_execute_jobs(client_name=None):
             break
 
         central_url = _central_url()
-        secret = _secret()
+        secret = _secret(client_name)
 
         if not central_url or not client_name or not secret:
             time.sleep(10)
@@ -190,7 +197,7 @@ def _execute_and_submit(central_url, client_name, secret, job):
         message=f"job_id: {job_id}\nSQL: {sql}\nParams: {params}"
     )
 
-    success, columns, rows, error = execute_read_query(sql, params)
+    success, columns, rows, error, columns_typed = execute_read_query(sql, params)
 
     frappe.log_error(
         title="SigzenBI Gateway: Execution result",
@@ -204,6 +211,7 @@ def _execute_and_submit(central_url, client_name, secret, job):
             "secret": secret,
             "success": success,
             "columns": columns,
+            "columns_typed": columns_typed,
             "rows": rows,
             "error": error,
         }
@@ -219,6 +227,109 @@ def _execute_and_submit(central_url, client_name, secret, job):
         pass
     except Exception:
         frappe.log_error(title="SigzenBI Submit Result Error", message=frappe.get_traceback())
+
+
+def run_materialize(client_name):
+    """Fetch the per-tenant materialize plan from Central (Task 3's
+    get_materialize_sql_list), run each query via the same read-only
+    execute_read_query() the live gateway path already uses (never a write
+    connection — see local_db.py), and push results to Central's
+    submit_materialized_result (Task 2). Per-query failures are logged and
+    skipped so one bad query doesn't abort the rest of the cycle.
+
+    Uses the same per-tenant gateway_secret (_secret) as pending_query/
+    submit_query_result — Central's get_materialize_sql_list/
+    submit_materialized_result now accept it too (see
+    query_gateway._authenticate_materialize_agent on Central, added
+    alongside this task: this agent has no reliable way to know the
+    db_password secret those endpoints originally required)."""
+    central_url = _central_url()
+    secret = _secret(client_name)
+
+    resp = requests.get(
+        f"{central_url}/api/method/sigzenbi_central.API.gateway.materialize_plan.get_materialize_sql_list",
+        params={"client_name": client_name, "secret": secret},
+        timeout=35,
+    )
+    if resp.status_code != 200:
+        # Not resp.raise_for_status() — its error message embeds resp.url, which
+        # contains the secret as a query param; never let that reach a log.
+        frappe.log_error(
+            title="materialize: plan fetch failed",
+            message=f"client_name: {client_name}\nHTTP {resp.status_code}",
+        )
+        return
+    data = resp.json().get("message") or resp.json()
+
+    for q in (data or {}).get("queries", []):
+        sql = q.get("sql")
+        if not sql:
+            continue
+        success, columns, rows, error, columns_typed = execute_read_query(sql, q.get("params") or {})
+        if not success:
+            frappe.log_error(
+                title="materialize: query failed",
+                message=f"client_name: {client_name}\nSQL: {sql}\nError: {error}",
+            )
+            continue
+        try:
+            requests.post(
+                f"{central_url}/api/method/sigzenbi_central.API.gateway.submit_materialized_result.submit_materialized_result",
+                json={
+                    "client_name": client_name,
+                    "secret": secret,
+                    "sql": sql,
+                    "columns": columns,
+                    "columns_typed": columns_typed,
+                    "rows": rows,
+                },
+                timeout=30,
+            )
+        except requests.exceptions.RequestException:
+            frappe.log_error(title="materialize: submit failed", message=f"client_name: {client_name}\nSQL: {sql}")
+
+
+def _candidate_client_names():
+    """Every locally-known client_name identity this bench could be polling for —
+    mirrors the exact enumeration check_and_start_polling_loop already does
+    (primary + registered_client_names singleton + SigzenBI Users email prefixes),
+    so materialize_all_clients fans out over the SAME set, not a guessed one."""
+    names = []
+    primary = _client_name()
+    if primary:
+        names.append(primary)
+
+    res = frappe.db.sql(
+        "SELECT value FROM tabSingles WHERE doctype='SigzenBI Subscription Settings' AND field='registered_client_names'"
+    )
+    registered_str = res[0][0] if res else ""
+    if registered_str:
+        for name in registered_str.split(","):
+            name = name.strip()
+            if name and name not in names:
+                names.append(name)
+
+    user_emails = frappe.get_all("SigzenBI Users", fields=["user_id"], pluck="user_id")
+    for email in user_emails:
+        if email and "@" in email:
+            prefix = email.split("@")[0].strip()
+            if prefix and prefix not in names:
+                names.append(prefix)
+    return names
+
+
+def materialize_all_clients():
+    """Scheduled fan-out (hooks.py cron). Per-client try/except so one tenant's
+    failure (offline Central, bad query, etc.) doesn't stop the rest."""
+    candidates = _candidate_client_names()
+    active = _fetch_active_client_names()
+    names = [n for n in candidates if n in active] if active is not None else candidates
+
+    for name in names:
+        try:
+            run_materialize(name)
+        except Exception:
+            frappe.log_error(title=f"materialize failed for {name}", message=frappe.get_traceback())
 
 
 def _reenqueue(client_name=None):

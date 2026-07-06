@@ -9,7 +9,7 @@ def get_context(context):
     status = settings.subscription_status
     if status != "Active":
         from sigzenbi_client.utils import redirect_without_port
-        redirect_without_port("/register/register")
+        redirect_without_port("/portal/signup")
 
     client_name = settings.client_name
     base_url = settings.sigzenbi_erp_link or ''
@@ -32,7 +32,7 @@ def get_context(context):
 
     if not db_registered:
         from sigzenbi_client.utils import redirect_without_port
-        redirect_without_port("/register/register")
+        redirect_without_port("/portal/signup")
 
 
 
@@ -48,7 +48,6 @@ def get_context(context):
                     from urllib.parse import unquote
                     client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
                     central_sid = frappe.request.cookies.get("central_sid")
-                    frappe.log_error(title="thankyou_debug", message=f"client_user={client_user}, central_sid={central_sid}, cookies={dict(frappe.request.cookies)}")
                 except Exception:
                     pass
 
@@ -62,7 +61,7 @@ def get_context(context):
             response = requests.get(url, cookies=cookies, timeout=50, allow_redirects=True)
             if response.status_code == 200:
                 # Ensure we did not get redirected to the login or database registration page
-                if "/client_login" not in response.url and "/login" not in response.url and "databasereg" not in response.url:
+                if "/client_login" not in response.url and "/portal/login" not in response.url and "/login" not in response.url and "databasereg" not in response.url:
                     central_html = response.text
                 else:
                     frappe.log_error(title="thankyou", message=f"Fetch redirected to login/registration page: {response.url}")

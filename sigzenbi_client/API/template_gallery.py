@@ -4,7 +4,9 @@ import requests
 
 @frappe.whitelist(allow_guest=True)
 def get_templates():
-    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url")
+    if not base_url:
+        return {"templates": []}
     if base_url and not base_url.endswith("/"):
         base_url += "/"
     secret = frappe.conf.get("sigzen_gateway_shared_secret")
@@ -22,7 +24,9 @@ def get_templates():
 
 @frappe.whitelist(allow_guest=True)
 def install_template(template_name=None):
-    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url") or "http://192.168.1.135:8007"
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url")
+    if not base_url:
+        return {"success": False, "message": "Central ERP link is not configured."}
     if base_url and not base_url.endswith("/"):
         base_url += "/"
     secret = frappe.conf.get("sigzen_gateway_shared_secret")

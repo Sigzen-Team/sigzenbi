@@ -152,6 +152,9 @@ scheduler_events = {
 	"all": [
 		"sigzenbi_client.API.gateway.poll_jobs.check_and_start_polling_loop"
 	],
+	"cron": {
+		"0 * * * *": ["sigzenbi_client.API.gateway.poll_jobs.materialize_all_clients"],
+	},
 }
 
 # Testing

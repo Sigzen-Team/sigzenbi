@@ -8,7 +8,7 @@ def get_context(context):
     if central_url and not central_url.endswith('/'):
         central_url += '/'
     context.central_url = central_url
-    context.register_url = "/register/register"
+    context.register_url = "/portal/signup"
 
     api_url = f"{central_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
     
@@ -117,7 +117,7 @@ def get_context(context):
                           <li><i class="fas fa-check-circle"></i> 24/7 Priority Support</li>
                           <li><i class="fas fa-check-circle"></i> Secure Cloud Hosting</li>
                       </ul>
-                      <a href="/register/register?plan=${plan.name.toLowerCase().replace(/ /g, '_')}" class="button">Select This Plan</a>
+                      <a href="/portal/signup?plan=${plan.name.toLowerCase().replace(/ /g, '_')}" class="button">Select This Plan</a>
                   `;
                   container.appendChild(planCard);
               });

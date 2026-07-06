@@ -55,7 +55,7 @@ def fetch_dashboards():
 
         from sigzenbi_client.utils import call_central_api
         res_json = call_central_api(
-            API_URL, payload={"user_email": user_email}, method="POST", cookies=cookies, timeout=15,
+            API_URL, payload={"user_email": user_email}, method="POST", cookies=cookies, timeout=60,
             client_name=_resolve_client_name_for_email(user_email),
         )
         return res_json
@@ -108,7 +108,7 @@ def get_superset_token(dashboard_id=None):
         payload = {"dashboard_id": dashboard_id, "user_email": user_email, "rls_clauses": rls_clauses}
         from sigzenbi_client.utils import call_central_api
         res_json = call_central_api(
-            TOKEN_URL, payload=payload, method="POST", cookies=cookies, timeout=15,
+            TOKEN_URL, payload=payload, method="POST", cookies=cookies, timeout=60,
             client_name=_resolve_client_name_for_email(user_email),
         )
         return res_json
