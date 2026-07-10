@@ -10,6 +10,17 @@ def get_context(context):
     context.central_url = central_url
     context.register_url = "/portal/signup"
 
+    # 2026-07-10 (spec §8 CTA fix): a logged-in viewer clicking "Select This Plan"
+    # must NOT be routed to /portal/signup?plan=... -- that bounces an already-logged-in
+    # user straight back to the dashboard. Detect the BI session the same way every
+    # other client page does (resolve_bi_user, central_sid-backed -- never a request
+    # param) and route them to the in-portal upgrade page instead.
+    from sigzenbi_client.utils import resolve_bi_user
+    _, current_bi_user = resolve_bi_user()
+    context.is_logged_in = bool(current_bi_user)
+    context.current_plan_name = frappe.db.get_single_value(
+        'SigzenBI Subscription Settings', 'subscription_plan_name') or ''
+
     api_url = f"{central_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
     
     # Fetch plans from central API
@@ -29,6 +40,7 @@ def get_context(context):
 
     context.csrf_token = frappe.sessions.get_csrf_token()
     context.subscription_plans_json = json.dumps(context.subscription_plans)
+    context.current_plan_name_json = json.dumps(context.current_plan_name)
 
     central_html = ""
     fetch_error = "sigzenbi_erp_link is not configured in SigzenBI Subscription Settings."
@@ -53,7 +65,8 @@ def get_context(context):
         frappe.log_error(title="client_plans", message="sigzenbi_erp_link is not configured in SigzenBI Subscription Settings.")
                 
     if not central_html:
-        context.central_html = f"<h1>Could not load subscription plans.</h1><p style='color: red; font-family: monospace;'>Error: {fetch_error}</p>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("Subscription plans", bool(central_url))
     else:
         # Rewrite asset URLs to point to central server
         if central_url:
@@ -88,20 +101,39 @@ def get_context(context):
   <script>
   document.addEventListener("DOMContentLoaded", function() {
       const plans = {{ subscription_plans_json | safe }};
+      const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
+      const currentPlanName = {{ current_plan_name_json | safe }};
       if (plans && plans.length > 0) {
           const container = document.querySelector('.plans-container');
           if (container) {
               container.innerHTML = '';
               plans.forEach(plan => {
                   const isPopular = plan.name.toLowerCase() === 'pqr';
+                  const isCurrent = isLoggedIn && currentPlanName &&
+                      plan.name.toLowerCase() === currentPlanName.toLowerCase();
                   const planCard = document.createElement('div');
                   planCard.className = `plan-card ${isPopular ? 'popular' : ''}`;
-                  
+
                   let badgeHtml = '';
-                  if (isPopular) {
+                  if (isCurrent) {
+                      badgeHtml = '<div class="popular-badge" style="background:#10b981;">Current Plan</div>';
+                  } else if (isPopular) {
                       badgeHtml = '<div class="popular-badge">Most Popular</div>';
                   }
-                  
+
+                  // 2026-07-10: 0 users means unlimited, not literally "Up to 0 users".
+                  const usersLabel = Number(plan.custom_no_of_users) === 0
+                      ? 'Unlimited users'
+                      : `Up to ${plan.custom_no_of_users} user${plan.custom_no_of_users !== 1 ? 's' : ''}`;
+
+                  // 2026-07-10 (spec §8): a logged-in viewer goes to the in-portal
+                  // upgrade page (/client_billing), never back through /portal/signup
+                  // (which bounces an already-logged-in user to the dashboard).
+                  const ctaHref = isLoggedIn
+                      ? '/client_billing'
+                      : `/portal/signup?plan=${plan.name.toLowerCase().replace(/ /g, '_')}`;
+                  const ctaLabel = isCurrent ? 'Current Plan' : 'Select This Plan';
+
                   planCard.innerHTML = `
                       ${badgeHtml}
                       <h3>${plan.name}</h3>
@@ -110,14 +142,14 @@ def get_context(context):
                           <div class="interval">per ${plan.billing_interval.toLowerCase()}</div>
                       </div>
                       <ul>
-                          <li><i class="fas fa-check-circle"></i> Up to ${plan.custom_no_of_users} user${plan.custom_no_of_users !== 1 ? 's' : ''}</li>
+                          <li><i class="fas fa-check-circle"></i> ${usersLabel}</li>
                           <li><i class="fas fa-check-circle"></i> ${plan.price_determination} Pricing</li>
                           <li><i class="fas fa-check-circle"></i> All Premium Dashboards</li>
                           <li><i class="fas fa-check-circle"></i> ERPNext Integration</li>
                           <li><i class="fas fa-check-circle"></i> 24/7 Priority Support</li>
                           <li><i class="fas fa-check-circle"></i> Secure Cloud Hosting</li>
                       </ul>
-                      <a href="/portal/signup?plan=${plan.name.toLowerCase().replace(/ /g, '_')}" class="button">Select This Plan</a>
+                      <a href="${ctaHref}" class="button">${ctaLabel}</a>
                   `;
                   container.appendChild(planCard);
               });
