@@ -132,116 +132,84 @@ def get_available_packs():
 
 @frappe.whitelist()
 def initiate_razorpay_purchase(pack_name):
-	"""Create a Razorpay order for a credit pack."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
+	"""Create a Razorpay order for a credit pack.
 
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
-		payload={"client_name": client_name, "pack_name": pack_name},
-		method="POST",
-		timeout=15,
-		client_name=client_name,
+	2026-07-10 security fix: was call_central_api (tenant API key = owner identity),
+	which let ANY roster member spend the org's money / create Razorpay orders as
+	the owner. Now sid-only forwarded via team_proxy._forward (see its HARD RULE
+	docstring); Central's payment_api._assert_client_access(client_name) re-derives
+	the caller from the forwarded sid and throws for non-owners. client_name is
+	still passed so Central can verify it against the sid's actual access."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward(
+		"sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
+		{"client_name": _get_client_name(), "pack_name": pack_name},
 	)
 
 
 @frappe.whitelist()
 def get_purchase_history(limit=20):
-	"""Proxy AI credit purchase history fetch to Central."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
-
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.get_purchase_history",
-		payload={"client_name": client_name, "limit": limit},
-		method="GET",
-		timeout=15,
-		client_name=client_name,
+	"""Proxy AI credit purchase history fetch to Central. sid-forwarded (2026-07-10
+	security fix) -- see initiate_razorpay_purchase for why."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward(
+		"sigzenbi_central.API.ai.payment_api.get_purchase_history",
+		{"client_name": _get_client_name(), "limit": limit},
 	)
 
 
 @frappe.whitelist()
 def get_ledger(limit=50):
-	"""Proxy AI credit ledger fetch to Central."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
-
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.get_ledger",
-		payload={"client_name": client_name, "limit": limit},
-		method="GET",
-		timeout=15,
-		client_name=client_name,
+	"""Proxy AI credit ledger fetch to Central. sid-forwarded (2026-07-10 security
+	fix) -- see initiate_razorpay_purchase for why."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward(
+		"sigzenbi_central.API.ai.payment_api.get_ledger",
+		{"client_name": _get_client_name(), "limit": limit},
 	)
 
 
 @frappe.whitelist()
 def save_byok_key(api_key):
 	"""Proxy BYOK key save/activate to Central. NEVER log api_key -- not even a
-	length/prefix -- it passes straight through to Central over HTTPS and back out."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
+	length/prefix -- it passes straight through to Central over HTTPS and back out.
 
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.save_byok_key",
-		payload={"api_key": api_key},
-		method="POST",
-		timeout=20,
-		client_name=client_name,
+	2026-07-10 security fix: sid-forwarded (see initiate_razorpay_purchase). Central's
+	byok_api derives client_name from the forwarded session itself (session.user), so
+	no client_name is passed here -- adding one would be an unexpected kwarg."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward(
+		"sigzenbi_central.API.ai.byok_api.save_byok_key",
+		{"api_key": api_key},
 	)
 
 
 @frappe.whitelist()
 def remove_byok_key():
-	"""Proxy BYOK key removal (deactivation) to Central."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
-
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.remove_byok_key",
-		payload={},
-		method="POST",
-		timeout=15,
-		client_name=client_name,
-	)
+	"""Proxy BYOK key removal (deactivation) to Central. sid-forwarded (2026-07-10
+	security fix) -- see save_byok_key for why no client_name is passed."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward("sigzenbi_central.API.ai.byok_api.remove_byok_key", {})
 
 
 @frappe.whitelist()
 def set_ai_policy(policy_order):
-	"""Proxy AI billing policy selection to Central."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
-
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.set_ai_policy",
-		payload={"policy_order": policy_order},
-		method="POST",
-		timeout=15,
-		client_name=client_name,
+	"""Proxy AI billing policy selection to Central. sid-forwarded (2026-07-10
+	security fix) -- see save_byok_key for why no client_name is passed."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward(
+		"sigzenbi_central.API.ai.byok_api.set_ai_policy",
+		{"policy_order": policy_order},
 	)
 
 
 @frappe.whitelist()
 def get_ai_billing_status():
 	"""Proxy the tenant's AI billing status (policy, BYOK key state, surcharge,
-	wallet balance) fetch to Central."""
-	base_url = _get_central_base()
-	client_name = _get_client_name()
-
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
-		f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
-		payload={},
-		method="GET",
-		timeout=15,
-		client_name=client_name,
-	)
+	wallet balance) fetch to Central. sid-forwarded (2026-07-10 security fix) --
+	see save_byok_key for why no client_name is passed."""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward("sigzenbi_central.API.ai.byok_api.get_ai_billing_status", {})
 
 
 @frappe.whitelist()
