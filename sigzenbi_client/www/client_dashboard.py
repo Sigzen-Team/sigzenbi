@@ -66,6 +66,22 @@ def _vouch_for_logged_in_user(visitor):
     return sid, visitor
 
 
+@frappe.whitelist(allow_guest=True)
+def renew_subscription():
+    """Sid-forwarded proxy for Central's `client_dashboard.renew_subscription`
+    (2026-07-10 fix). The Renew button called that Central method name via `callApi`
+    against the CLIENT origin -- unproxied, so it 404'd (the wire-rewrite below now
+    maps it here). Central's renew_subscription derives the tenant from
+    `frappe.session.user` matched against the roster (any member, not owner-scoped
+    like the new AI billing endpoints in ai_proxy.py), so this MUST reuse
+    team_proxy._forward's sid-only forwarding and NOT utils.call_central_api --
+    the latter's tenant-API-key auth would authenticate every caller as the org
+    owner regardless of who actually clicked Renew (see team_proxy.py's HARD RULE
+    docstring)."""
+    from sigzenbi_client.API.team_proxy import _forward
+    return _forward("sigzenbi_central.www.client_dashboard.renew_subscription", {})
+
+
 def get_context(context):
     context.no_cache = 1
 
@@ -99,6 +115,20 @@ def get_context(context):
     context.central_url = base_url
     context.csrf_token = frappe.sessions.get_csrf_token()
 
+    # The client site has no Client User doctype, so the "Superset login" card gate is
+    # fetched from Central with the sid (mirrors team.py's server-to-server resolve).
+    # Cosmetic only (the endpoints are self-safe); fail-closed to 0.
+    context.can_manage_superset_login = 0
+    if base_url and central_sid:
+        try:
+            _g = requests.get(
+                f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials.can_manage_superset_login",
+                cookies={"sid": central_sid}, timeout=10)
+            if _g.ok:
+                context.can_manage_superset_login = (_g.json().get("message") or {}).get("can_manage", 0)
+        except Exception:
+            pass
+
     # Pass proxy endpoints to pre-rendered HTML
     context.api_get_superset_token_url = "sigzenbi_client.API.dashboard_api.get_superset_token"
     context.api_fetch_dashboards_url = "sigzenbi_client.API.dashboard_api.fetch_dashboards"
@@ -119,7 +149,8 @@ def get_context(context):
             frappe.log_error(message=f"Error fetching central client_dashboard.html: {e}", title="client_dashboard")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load dashboard.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("Your dashboard", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:
@@ -150,8 +181,61 @@ def get_context(context):
                 context.api_fetch_dashboards_url
             )
             central_html = central_html.replace(
+                "sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
+                "sigzenbi_client.API.team_proxy.get_my_superset_password"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.team.superset_credentials.reset_superset_password",
+                "sigzenbi_client.API.team_proxy.reset_superset_password"
+            )
+            central_html = central_html.replace(
                 "CENTRAL_SERVER_URL.replace(/\\/$/, '') + '/ai_chat_frame'",
                 "'/ai_chart'"
+            )
+            # 2026-07-10: self-serve AI monetization (credit packs + BYOK) -- browser
+            # must never hit the Central domain (root CLAUDE.md rule), so every Central
+            # method these pages might call is rewritten to its client proxy here even
+            # though client_dashboard.html itself doesn't call them yet -- this keeps
+            # client_billing.html/nav (phase2-9/Task 9) working without a second pass
+            # over this file.
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.payment_api.get_available_packs",
+                "sigzenbi_client.API.ai_proxy.get_available_packs"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
+                "sigzenbi_client.API.ai_proxy.initiate_razorpay_purchase"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.payment_api.get_purchase_history",
+                "sigzenbi_client.API.ai_proxy.get_purchase_history"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.payment_api.get_ledger",
+                "sigzenbi_client.API.ai_proxy.get_ledger"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.byok_api.save_byok_key",
+                "sigzenbi_client.API.ai_proxy.save_byok_key"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.byok_api.remove_byok_key",
+                "sigzenbi_client.API.ai_proxy.remove_byok_key"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.byok_api.set_ai_policy",
+                "sigzenbi_client.API.ai_proxy.set_ai_policy"
+            )
+            central_html = central_html.replace(
+                "sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
+                "sigzenbi_client.API.ai_proxy.get_ai_billing_status"
+            )
+            # Fix: the Renew button called this Central www method name directly
+            # against the client origin (unproxied -> 404, see renew_subscription()
+            # below). Route it through the sid-forwarded client proxy instead.
+            central_html = central_html.replace(
+                "sigzenbi_central.www.client_dashboard.renew_subscription",
+                "sigzenbi_client.www.client_dashboard.renew_subscription"
             )
             from sigzenbi_client.utils import rewrite_plans_link
             central_html = rewrite_plans_link(central_html)
