@@ -56,11 +56,6 @@ def subscription_reciver(
     **kwargs
 ):
     try:
-        # A per-tenant secret is keyed by client_name; a falsy client_name would leave only the
-        # global (kill-switch bypass) and still run the singleton/admin-user writes below. Reject.
-        if not client_name:
-            frappe.throw(_("client_name is required."), frappe.AuthenticationError)
-
         # Validate the request is from Central using HMAC signature or security_key fallback.
         # Central sends X-SigzenBI-Signature header (HMAC of JSON payload).
         provided_sig = frappe.request.headers.get("X-SigzenBI-Signature") if frappe.request else None

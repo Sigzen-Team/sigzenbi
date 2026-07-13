@@ -53,22 +53,9 @@ def _fetch_active_client_names():
         return set(cached)
 
     try:
-        # Send our OWN registered identities so Central scopes the response to them and can't
-        # leak the full customer roster back (audit 2026-07-11 LOW #7). The watchdog already
-        # intersects the result with these candidates, so this is result-identical.
-        import json as _json
-        _candidates = sorted(_candidate_client_names())
-        # C3-completion: authenticate as our PRIMARY identity with its per-tenant gateway
-        # secret (Central verifies it + scopes the reply to our candidate list). During the
-        # migration window Central also still accepts the global secret, so this is non-breaking.
-        _primary = _client_name()
         resp = requests.get(
             f"{_central_url()}/api/method/sigzenbi_central.API.gateway.active_clients.get_active_client_names",
-            params={
-                "secret": _secret(_primary),
-                "client_name": _primary,
-                "client_names": _json.dumps(_candidates),
-            },
+            params={"secret": _secret()},
             timeout=10,
         )
         resp.raise_for_status()
@@ -205,11 +192,17 @@ def _execute_and_submit(central_url, client_name, secret, job):
     sql = job.get("sql")
     params = job.get("params") or {}
 
-    # Removed two unconditional per-query log_error calls that wrote full SQL + RLS/filter
-    # params (customer names, territories, emails) into the broadly-readable Error Log on
-    # EVERY gateway job — PII exposure + non-error spam that buried real failures (audit
-    # 2026-07-11 LOW #27). The failure branch below still logs genuine execution errors.
+    frappe.log_error(
+        title="SigzenBI Gateway: Executing job",
+        message=f"job_id: {job_id}\nSQL: {sql}\nParams: {params}"
+    )
+
     success, columns, rows, error, columns_typed = execute_read_query(sql, params)
+
+    frappe.log_error(
+        title="SigzenBI Gateway: Execution result",
+        message=f"job_id: {job_id}\nSuccess: {success}\nRows count: {len(rows) if rows else 0}\nError: {error}"
+    )
 
     try:
         payload = {

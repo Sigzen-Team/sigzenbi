@@ -17,8 +17,8 @@ def _get_central_base():
 	return base_url
 
 
-# _get_client_name is defined once below (the fallback-capable version); the earlier
-# duplicate here was dead code shadowed by it (audit LOW #26).
+def _get_client_name():
+	return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or ""
 
 
 def central_authed(fn):

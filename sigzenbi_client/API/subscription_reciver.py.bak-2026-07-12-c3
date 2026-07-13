@@ -7,31 +7,26 @@ import frappe
 from frappe import _
 
 
-def _verify_signature(payload: dict, provided_sig: str, client_name: str = None) -> bool:
+def _verify_signature(payload: dict, provided_sig: str) -> bool:
     """
-    Verify that this webhook was sent by our Central server. Central signs the payload
-    with THIS tenant's per-tenant gateway_secret (C3-completion); during the migration
-    window it may still sign with the legacy global secret, so we accept either via
-    auth._accepted_secrets(client_name) — the single source of "which secrets are valid
-    for this tenant right now". HMAC-SHA256, constant-time, no short-circuit on match.
+    Verify that this webhook was sent by our Central server.
+    Central signs the payload with the gateway shared secret.
+    We compare using HMAC-SHA256 with constant-time comparison to prevent timing attacks.
     """
-    from sigzenbi_client.API.gateway import auth
-
-    candidates = auth._accepted_secrets(client_name)
-    if not candidates:
+    secret = frappe.conf.get("sigzen_gateway_shared_secret")
+    if not secret:
         frappe.log_error(
             title="Subscription Receiver: secret not configured",
-            message=f"No gateway secret available for client_name={client_name}. Cannot validate webhook."
+            message="sigzen_gateway_shared_secret is not set in site_config.json. Cannot validate webhook."
         )
         return False
 
-    body = json.dumps(payload, sort_keys=True).encode("utf-8")
-    ok = False
-    for secret in candidates:
-        expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-        if hmac.compare_digest(str(provided_sig), str(expected)):
-            ok = True
-    return ok
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        json.dumps(payload, sort_keys=True).encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(str(provided_sig), str(expected))
 
 
 @frappe.whitelist(allow_guest=True)
@@ -56,11 +51,6 @@ def subscription_reciver(
     **kwargs
 ):
     try:
-        # A per-tenant secret is keyed by client_name; a falsy client_name would leave only the
-        # global (kill-switch bypass) and still run the singleton/admin-user writes below. Reject.
-        if not client_name:
-            frappe.throw(_("client_name is required."), frappe.AuthenticationError)
-
         # Validate the request is from Central using HMAC signature or security_key fallback.
         # Central sends X-SigzenBI-Signature header (HMAC of JSON payload).
         provided_sig = frappe.request.headers.get("X-SigzenBI-Signature") if frappe.request else None
@@ -87,29 +77,25 @@ def subscription_reciver(
         }
 
         if provided_sig:
-            if not _verify_signature(payload_for_sig, provided_sig, client_name=client_name):
+            if not _verify_signature(payload_for_sig, provided_sig):
                 frappe.log_error(
                     title="Subscription Receiver: invalid signature",
                     message="Rejected webhook — HMAC signature mismatch."
                 )
                 frappe.throw(_("Unauthorized: invalid webhook signature."), frappe.AuthenticationError)
         else:
-            # Fallback: validate security_key against this tenant's per-tenant gateway_secret
-            # (global accepted only during the migration window — see auth._accepted_secrets).
-            # ponytail: deprecated path — Central now always sends the X-SigzenBI-Signature HMAC
-            # header; delete this branch in final C3 cleanup once no Central signs without it.
-            from sigzenbi_client.API.gateway.auth import _secret_matches, _accepted_secrets
-            candidates = _accepted_secrets(client_name)
-            if not candidates:
+            # Fallback: validate using security_key == gateway secret (older Central versions)
+            expected_secret = frappe.conf.get("sigzen_gateway_shared_secret")
+            if not expected_secret:
                 frappe.log_error(
                     title="Subscription Receiver: no auth possible",
-                    message=f"No gateway secret for client_name={client_name} and no HMAC signature provided."
+                    message="sigzen_gateway_shared_secret not set and no HMAC signature provided."
                 )
                 frappe.throw(_("Unauthorized: webhook authentication not configured."), frappe.AuthenticationError)
-            if not _secret_matches(security_key, candidates):
+            if not hmac.compare_digest(str(security_key or ""), str(expected_secret)):
                 frappe.log_error(
                     title="Subscription Receiver: invalid security_key",
-                    message="Rejected webhook — security_key does not match this tenant's gateway secret."
+                    message="Rejected webhook — security_key does not match gateway secret."
                 )
                 frappe.throw(_("Unauthorized: invalid security key."), frappe.AuthenticationError)
 

@@ -4,7 +4,7 @@ import requests
 import json
 
 def get_context(context):
-    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central.sigzenone.com"
+    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central-domain.com"
     if central_url and not central_url.endswith('/'):
         central_url += '/'
     context.central_url = central_url

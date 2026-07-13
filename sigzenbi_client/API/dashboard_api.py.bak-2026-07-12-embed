@@ -105,24 +105,7 @@ def get_superset_token(dashboard_id=None):
         except Exception:
             frappe.log_error(title="get_superset_token: RLS computation", message=frappe.get_traceback())
 
-        # This tenant's REAL portal origin (any customer domain), derived server-side from the
-        # browser's own request — never hardcoded, never from config. Central uses it to authorize
-        # this tenant's Superset embeds for THIS domain (SaaS per-tenant embed authorization).
-        # Prefer the Origin header (exactly what Superset's allowed_domains checks); fall back to
-        # scheme://host. Central re-validates before trusting it.
-        embed_origin = None
-        if getattr(frappe.local, "request", None):
-            try:
-                embed_origin = frappe.get_request_header("Origin")
-                if not embed_origin:
-                    scheme = frappe.get_request_header("X-Forwarded-Proto") or frappe.request.scheme or "https"
-                    if frappe.request.host:
-                        embed_origin = f"{scheme}://{frappe.request.host}"
-            except Exception:
-                embed_origin = None
-
-        payload = {"dashboard_id": dashboard_id, "user_email": user_email, "rls_clauses": rls_clauses,
-                   "embed_origin": embed_origin}
+        payload = {"dashboard_id": dashboard_id, "user_email": user_email, "rls_clauses": rls_clauses}
         from sigzenbi_client.utils import call_central_api
         res_json = call_central_api(
             TOKEN_URL, payload=payload, method="POST", cookies=cookies, timeout=60,

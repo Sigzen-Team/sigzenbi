@@ -8,12 +8,10 @@ def get_context(context):
 	context.no_cache = 1
 	context.show_sidebar = False
 
-	client_user = None
-	if getattr(frappe.local, "request", None):
-		try:
-			client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-		except Exception:
-			pass
+	# Identity: a live ERP session wins over a stale client_session_user cookie
+	# (re-vouches on account switch, fails closed) — same resolver as the dashboard.
+	from sigzenbi_client.utils import resolve_bi_user
+	_, client_user = resolve_bi_user()
 
 	if not client_user:
 		from sigzenbi_client.utils import redirect_without_port
@@ -76,7 +74,8 @@ def get_context(context):
 			frappe.log_error(title="ai_chart", message=f"Error fetching central template: {e}")
 
 	if not central_html:
-		context.html_content = "<h1>Could not load AI Chart builder.</h1>"
+		from sigzenbi_client.utils import guided_fallback
+		context.html_content = guided_fallback("The AI Chart builder", bool(base_url))
 	else:
 		# Rewrite asset URLs to point to central server
 		if base_url:

@@ -411,3 +411,27 @@ def resolve_bi_user():
 
     # Same user as the cookie, or a BI-login-form session with no ERP session: keep it.
     return central_sid, client_user
+
+
+SUPPORT_HINT = "SigzenBI support (support@sigzen.com)"  # ponytail: static; wire to site_config if the address ever moves
+
+
+def guided_fallback(page_label, configured):
+    """Friendly, fully-static guided message for a mirrored page that could not render.
+    `page_label` is a fixed caller-supplied string; `configured` = bool(base_url).
+    NEVER interpolate request input, base_url, or exception text here -- output is rendered `| safe`."""
+    if not configured:
+        return (
+            f"<div style='max-width:640px;margin:80px auto;font-family:system-ui,sans-serif;text-align:center'>"
+            f"<h1 style='font-size:1.4rem'>{page_label} is not available yet</h1>"
+            f"<p>This SigzenBI workspace has not finished setup &mdash; its connection to the SigzenBI service "
+            f"is not configured. No data is missing; the workspace just isn't linked yet.</p>"
+            f"<p>Please contact your administrator or {SUPPORT_HINT} to complete setup.</p></div>"
+        )
+    return (
+        f"<div style='max-width:640px;margin:80px auto;font-family:system-ui,sans-serif;text-align:center'>"
+        f"<h1 style='font-size:1.4rem'>{page_label} is temporarily unavailable</h1>"
+        f"<p>We couldn't reach the SigzenBI service just now. This is usually temporary &mdash; "
+        f"please refresh in a moment.</p>"
+        f"<p>If it keeps happening, contact {SUPPORT_HINT}.</p></div>"
+    )

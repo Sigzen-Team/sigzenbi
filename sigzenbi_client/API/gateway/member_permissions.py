@@ -1,0 +1,82 @@
+"""Dedicated off-gateway read of a member's Frappe User Permission rows, consumed by Central's
+row-level-scope derivation (sigzenbi_central .../team/user_permissions.get_member_data_scope).
+
+WHY THIS EXISTS: the SQL gateway (execute_query -> local_db.is_read_only_sql) deliberately blocks
+Frappe's core auth tables, and its `_SENSITIVE_TABLE_RE` `\btabUser\b` branch ALSO matches
+`tabUser Permission`. So Central could never read a member's User Permissions through the gateway
+— every row-scoped member failed CLOSED to zero rows. This endpoint is the gateway-free path for
+that ONE fixed, read-only, non-secret projection. It is NOT a general query endpoint: it accepts
+no caller SQL.
+
+TRUST MODEL — this is a trust boundary; defended explicitly:
+  * AuthN: the GLOBAL gateway shared secret (auth.validate_secret, constant-time) proves the caller
+    is Central. This is the SAME server-to-server mechanism every existing Central->client call uses
+    (execute_query, agent_heartbeat, trigger_refresh, receive_secret). The secret arrives in the
+    POST body, never the URL.
+  * AuthZ: `client_name` must be an identity THIS bench actually hosts (poll_jobs._candidate_client_names
+    — primary + registered_client_names + SigzenBI Users email prefixes). This mirrors trigger_refresh,
+    and deliberately does NOT use auth.validate_gateway_request: its single-identity validate_client_name
+    only matches the primary client_name and would silently reject every non-primary tenant on a
+    multi-identity bench.
+  * Tenant isolation is BY CONSTRUCTION: the read runs against THIS site's own DB. There is no other
+    tenant's data to reach, and `member_email` only selects WHICH user's rows on this one site.
+  * Least disclosure: returns ONLY `tabUser Permission` rows, ONLY the 4 scoping columns
+    (allow/for_value/applicable_for/hide_descendants — org-structure scoping, no passwords/keys/secrets),
+    ONLY for the given user. Read-only (frappe.get_all cannot mutate). No secret is returned or logged.
+"""
+import frappe
+
+from sigzenbi_client.API.gateway.auth import validate_secret
+
+
+def _failure(message):
+	return {"success": False, "message": message}
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def get_member_user_permissions(client_name=None, member_email=None, secret=None):
+	"""Return {"success": True, "rows": [[allow, for_value, applicable_for, hide_descendants], ...]}
+	for `member_email`'s `tabUser Permission` rows on THIS site, in the positional shape Central's
+	scope parser expects. Read-only. See the module docstring for the full trust model."""
+	ok, err = validate_secret(secret, client_name=client_name)
+	if not ok:
+		# secret_provided (bool) ONLY — never the secret value (Error Log is broadly readable).
+		frappe.log_error(
+			title="Sigzen Member Permissions — auth failure",
+			message=f"{err}\nclient_name={client_name}\nsecret_provided={bool(secret)}",
+		)
+		return _failure(err)
+
+	# Lazy import (matches trigger_refresh) — avoids a module-load cycle with poll_jobs.
+	from sigzenbi_client.API.gateway.poll_jobs import _candidate_client_names
+
+	if not client_name or client_name not in _candidate_client_names():
+		frappe.log_error(
+			title="Sigzen Member Permissions — non-hosted client_name",
+			message=f"client_name={client_name}\nsecret_provided={bool(secret)}",
+		)
+		return _failure("client_name is not a hosted identity on this site.")
+
+	if not member_email:
+		# No identity to scope by → no rows. This is an EMPTY result (success), NOT a read
+		# failure — Central treats [] as unrestricted-within-tenant (matching Frappe). Only a
+		# genuine transport/HTTP error (which this success response is not) trips Central's
+		# fail-closed deny-by-default.
+		return {"success": True, "rows": []}
+
+	# Fixed, parameterized read of exactly this user's User Permission rows. frappe.get_all
+	# ignores user permissions (guest-safe) and cannot write. Only 4 non-secret scoping columns;
+	# limit_page_length=0 = no cap (a member may legitimately have many permissions).
+	rows = frappe.get_all(
+		"User Permission",
+		filters={"user": member_email},
+		fields=["allow", "for_value", "applicable_for", "hide_descendants"],
+		limit_page_length=0,
+	)
+	return {
+		"success": True,
+		"rows": [
+			[r.get("allow"), r.get("for_value"), r.get("applicable_for"), r.get("hide_descendants")]
+			for r in rows
+		],
+	}

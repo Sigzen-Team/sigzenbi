@@ -40,21 +40,17 @@ def _check_config():
 
 
 def _check_central_reachable():
-    """Authenticated ping: get_active_client_names, authenticated with THIS site's
-    per-tenant gateway secret (C3-completion — no global shared secret). Deliberately NOT
-    one of the flagged allow_guest debug endpoints (test_ping_v5 etc.) — this one requires a
-    valid per-tenant secret to answer."""
+    """Authenticated ping: get_active_client_names, gated by the gateway shared
+    secret. Deliberately NOT one of the flagged allow_guest debug endpoints
+    (test_ping_v5 etc.) — this one requires a valid secret to answer."""
     central_url = _central_url()
-    client_name = _client_name()
-    from sigzenbi_client import credentials
-    secret = credentials.get_gateway_secret(client_name) if client_name else None
-    if not central_url or not secret or not client_name:
-        return False, "central_url, client_name, or per-tenant gateway secret not configured"
+    secret = frappe.conf.get("sigzen_gateway_shared_secret")
+    if not central_url or not secret:
+        return False, "central_url or gateway secret not configured"
     try:
-        import json as _json
         resp = requests.get(
             f"{central_url}/api/method/sigzenbi_central.API.gateway.active_clients.get_active_client_names",
-            params={"secret": secret, "client_name": client_name, "client_names": _json.dumps([client_name])},
+            params={"secret": secret},
             timeout=10,
         )
         data = resp.json()

@@ -6,11 +6,9 @@ import frappe
 # While True, an inbound Central call is accepted if its secret matches EITHER this identity's
 # own per-tenant gateway_secret OR the legacy global sigzen_gateway_shared_secret. This is the
 # dual-accept window that keeps the ~40 live tenants working while Central is cut over to sign
-# every call per-tenant.
-# CUTOVER 2026-07-12: set to False — Central now signs every inbound call per-tenant (B1-B5) or
-# with the tenant api_secret (bootstrap), so the global secret is no longer accepted on ANY inbound
-# path. This is what actually retires the global shared secret. Rollback = set back to True.
-_ACCEPT_GLOBAL_GATEWAY_SECRET = False
+# every call per-tenant. Flip to False once Central signs per-tenant everywhere (that is what
+# actually closes the global secret on the inbound direction); rollback = set back to True.
+_ACCEPT_GLOBAL_GATEWAY_SECRET = True
 
 
 def _configured_client_name():
@@ -46,10 +44,7 @@ def _accepted_secrets(client_name):
 		pt = credentials.get_gateway_secret_strict(client_name)
 		if pt:
 			candidates.append(pt)
-	# Global is gated STRICTLY on the flag — never on a falsy client_name (that was a kill-switch
-	# bypass: an attacker sending client_name="" would get the global accepted even with the flag
-	# off). A caller with no resolvable client_name simply has no accepted secret → fail closed.
-	if _ACCEPT_GLOBAL_GATEWAY_SECRET:
+	if _ACCEPT_GLOBAL_GATEWAY_SECRET or not client_name:
 		glob = frappe.conf.get("sigzen_gateway_shared_secret")
 		if glob:
 			candidates.append(glob)

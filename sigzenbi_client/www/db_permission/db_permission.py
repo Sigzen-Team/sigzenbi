@@ -31,7 +31,8 @@ def get_context(context):
             frappe.log_error(title="db_permission_proxy", message=f"Error fetching central db_permission.html: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load database permission page.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("The database permission page", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

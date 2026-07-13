@@ -4,17 +4,19 @@ import frappe
 from frappe.utils.password import update_password
 
 
-def _validate_central_secret(secret, client_name=None):
+def _validate_central_secret(secret):
     """
-    Ensure this request is from Central. Bootstrap endpoint (delivers this tenant's
-    gateway_secret) so it authenticates with the per-tenant api_secret the client already
-    holds from registration — not the global shared secret (C3-completion). Constant-time.
+    Ensure this request is from Central by validating the gateway shared secret.
+    Uses constant-time comparison to prevent timing attacks.
     """
-    from sigzenbi_client.API.gateway.auth import validate_bootstrap_secret
-
-    ok, err = validate_bootstrap_secret(secret, client_name=client_name)
-    if not ok:
-        frappe.throw(f"Unauthorized: {err}", frappe.AuthenticationError)
+    expected = frappe.conf.get("sigzen_gateway_shared_secret")
+    if not expected:
+        frappe.throw(
+            "sigzen_gateway_shared_secret is not configured in site_config.json.",
+            frappe.AuthenticationError
+        )
+    if not secret or not hmac.compare_digest(str(secret), str(expected)):
+        frappe.throw("Unauthorized: invalid gateway secret.", frappe.AuthenticationError)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -23,7 +25,7 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
     Called by Central during client registration to create the first admin user on this site.
     Protected by the gateway shared secret — only Central can call this.
     """
-    _validate_central_secret(secret, client_name=client_name)
+    _validate_central_secret(secret)
 
     try:
         full_name = f"{first_name} {last_name}".strip()

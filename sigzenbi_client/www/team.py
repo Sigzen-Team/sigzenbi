@@ -46,7 +46,8 @@ def get_context(context):
             frappe.log_error(title="team", message=f"Error fetching central team.html: {e}")
 
     if not central_html:
-        context.html_content = "<h1>Could not load the Team page.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.html_content = guided_fallback("The Team page", bool(base_url))
         return context
 
     from sigzenbi_client.utils import get_browser_base_url, rewrite_plans_link
@@ -70,6 +71,15 @@ def get_context(context):
     central_html = central_html.replace(
         "sigzenbi_central.API.team.assign_dashboard.assign_dashboard",
         "sigzenbi_client.API.team_proxy.assign_dashboard")
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.set_ai_chat.set_ai_chat",
+        "sigzenbi_client.API.team_proxy.set_ai_chat")
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
+        "sigzenbi_client.API.team_proxy.get_my_superset_password")
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.superset_credentials.reset_superset_password",
+        "sigzenbi_client.API.team_proxy.reset_superset_password")
 
     # Logout must clear only the BI cookies, not the native client Frappe session.
     central_html = central_html.replace(

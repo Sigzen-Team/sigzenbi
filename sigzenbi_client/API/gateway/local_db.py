@@ -58,6 +58,12 @@ def is_read_only_sql(sql):
 	if not cleaned:
 		return False, "sql must be a non-empty string."
 
+	# MariaDB executable comments /*!...*/ run on the server but vanish from the
+	# comment-stripped string checked below - a hidden UNION SELECT FROM `__Auth`
+	# would pass every check yet execute. Reject outright (matches Central guard).
+	if "/*!" in cleaned:
+		return False, "Executable SQL comments are not allowed."
+
 	executable_sql = _get_executable_sql(cleaned)
 	if not executable_sql:
 		return False, "sql must contain an executable query."

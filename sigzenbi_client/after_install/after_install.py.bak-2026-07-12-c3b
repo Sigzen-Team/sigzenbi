@@ -22,11 +22,7 @@ def create_default_permissions_and_roles():
     create_permission_client()
     create_role_client()
     set_default_subscription_settings()
-    # NOTE: no gateway-secret generation at install (C3-completion). The old setup_gateway_secret()
-    # minted a RANDOM sigzen_gateway_shared_secret that could never match Central's global — which
-    # silently broke per-tenant secret DISTRIBUTION on every fresh self-serve install (the box2 417
-    # root cause). Auth is now purely per-tenant: the tenant receives its own gateway_secret at
-    # registration (fetch_first_user), authenticated by its api_secret. No shared/global secret.
+    setup_gateway_secret()
 
 def set_default_subscription_settings():
     # Idempotent + fail-forward: only SEED the hub URLs when unset, so a re-install or an
@@ -44,6 +40,12 @@ def set_default_subscription_settings():
     if updates:
         frappe.db.set_value("SigzenBI Subscription Settings", None, updates)
         frappe.db.commit()
+
+def setup_gateway_secret():
+    if not frappe.conf.get("sigzen_gateway_shared_secret"):
+        from frappe.installer import update_site_config
+        unique_secret = frappe.generate_hash(length=42)
+        update_site_config("sigzen_gateway_shared_secret", unique_secret)
 
 def create_permission_client():
     # Check if the permission already exists

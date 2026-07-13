@@ -33,6 +33,14 @@ def _inject_client_db_fields(html):
 			count=1,
 			flags=re.IGNORECASE | re.DOTALL,
 		)
+	# C5: a non-technical buyer must never see their DB password in plaintext. Force the
+	# db_password input to type="password" (masked); the value stays auto-filled/submittable.
+	def _mask_pw(m):
+		tag = m.group(0)
+		if re.search(r'\btype=', tag, re.IGNORECASE):
+			return re.sub(r'\btype="[^"]*"', 'type="password"', tag, count=1, flags=re.IGNORECASE)
+		return tag[:6] + ' type="password"' + tag[6:]
+	html = re.sub(r'<input[^>]*name="db_password"[^>]*>', _mask_pw, html, count=1, flags=re.IGNORECASE | re.DOTALL)
 	return html
 
 
@@ -95,7 +103,8 @@ def get_context(context):
             frappe.log_error(title="databasereg", message=f"Error fetching central databasereg.html: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load database connectivity form.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("The database connectivity form", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

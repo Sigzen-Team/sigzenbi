@@ -53,29 +53,18 @@ def get_context(context):
     # else), so a non-200 here reliably means "not the owner". This is what actually decides
     # whether the write-controls markup renders at all; the ai_proxy write calls themselves
     # cannot be trusted to enforce this today (Task 12 hardens the proxy's auth).
-    # A non-200 does NOT "reliably mean not the owner" (the old claim above): a timeout, a 5xx or
-    # a network blip produces one too. Treating those as a permission denial told the REAL owner
-    # "AI & Billing is managed by your organization's owner" and hid every control -- billing
-    # looked broken whenever Central was slow. Separate the two cases:
-    #   401/403     -> definitively NOT the owner -> the "ask your admin" panel
-    #   timeout/5xx -> ownership UNKNOWN          -> "temporarily unavailable, refresh" panel
-    # Both still fail CLOSED (is_owner stays 0, so no write-control markup is ever rendered for an
-    # unverified session). We only stop lying about WHY.
     context.is_owner = 0
     context.billing_status = {}
-    context.owner_check_failed = 0
     if base_url and central_sid:
         try:
             _o = requests.get(
                 f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
-                cookies={"sid": central_sid}, timeout=20)
+                cookies={"sid": central_sid}, timeout=10)
             if _o.ok:
                 context.is_owner = 1
                 context.billing_status = _o.json().get("message") or {}
-            elif _o.status_code not in (401, 403):
-                context.owner_check_failed = 1
         except Exception:
-            context.owner_check_failed = 1
+            pass
 
     context.packs = []
     context.purchase_history = []
@@ -119,7 +108,6 @@ def get_context(context):
         "sigzenbi_central.API.ai.byok_api.set_ai_policy": "sigzenbi_client.API.ai_proxy.set_ai_policy",
         "sigzenbi_central.API.ai.byok_api.get_ai_billing_status": "sigzenbi_client.API.ai_proxy.get_ai_billing_status",
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
-        "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",
     }
     for central_method, client_method in rewrites.items():
         central_html = central_html.replace(central_method, client_method)
