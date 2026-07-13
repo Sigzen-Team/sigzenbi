@@ -4,7 +4,7 @@ import requests
 import json
 
 def get_context(context):
-    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central.sigzenone.com"
+    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central-domain.com"
     if central_url and not central_url.endswith('/'):
         central_url += '/'
     context.central_url = central_url
@@ -126,16 +126,11 @@ def get_context(context):
                       ? 'Unlimited users'
                       : `Up to ${plan.custom_no_of_users} user${plan.custom_no_of_users !== 1 ? 's' : ''}`;
 
-                  // 2026-07-11: carry the CHOSEN plan. Sending a logged-in viewer to a bare
-                  // /client_billing was a dead end -- that page's "Upgrade plan" button links
-                  // back here, so the CTA just looped and no order was ever created. Billing now
-                  // opens Razorpay checkout for ?plan=<name> (Central validates it, owner-only).
-                  // The current plan stays a no-op link; a free plan has no checkout to open.
-                  const isFree = Number(plan.cost) === 0;
+                  // 2026-07-10 (spec §8): a logged-in viewer goes to the in-portal
+                  // upgrade page (/client_billing), never back through /portal/signup
+                  // (which bounces an already-logged-in user to the dashboard).
                   const ctaHref = isLoggedIn
-                      ? (isCurrent || isFree
-                          ? '/client_billing'
-                          : `/client_billing?plan=${encodeURIComponent(plan.name)}`)
+                      ? '/client_billing'
                       : `/portal/signup?plan=${plan.name.toLowerCase().replace(/ /g, '_')}`;
                   const ctaLabel = isCurrent ? 'Current Plan' : 'Select This Plan';
 

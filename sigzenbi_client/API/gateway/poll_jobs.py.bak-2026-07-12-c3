@@ -58,17 +58,9 @@ def _fetch_active_client_names():
         # intersects the result with these candidates, so this is result-identical.
         import json as _json
         _candidates = sorted(_candidate_client_names())
-        # C3-completion: authenticate as our PRIMARY identity with its per-tenant gateway
-        # secret (Central verifies it + scopes the reply to our candidate list). During the
-        # migration window Central also still accepts the global secret, so this is non-breaking.
-        _primary = _client_name()
         resp = requests.get(
             f"{_central_url()}/api/method/sigzenbi_central.API.gateway.active_clients.get_active_client_names",
-            params={
-                "secret": _secret(_primary),
-                "client_name": _primary,
-                "client_names": _json.dumps(_candidates),
-            },
+            params={"secret": _secret(), "client_names": _json.dumps(_candidates)},
             timeout=10,
         )
         resp.raise_for_status()

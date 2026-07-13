@@ -114,8 +114,26 @@ def remove_user(email):
 
 
 @frappe.whitelist(allow_guest=True)
-def assign_dashboard(user, dashboard, assigned=1):
+def assign_dashboard(user, dashboard, assigned=1, permission_level=None):
     # Central's assign_dashboard re-derives the tenant from the session and validates
     # the user + dashboard belong to it — we forward only, adding no trust of our own.
     return _forward("sigzenbi_central.API.team.assign_dashboard.assign_dashboard",
-                    {"user": user, "dashboard": dashboard, "assigned": assigned})
+                    {"user": user, "dashboard": dashboard, "assigned": assigned,
+                     "permission_level": permission_level})
+
+@frappe.whitelist(allow_guest=True)
+def set_ai_chat(user, enabled):
+    return _forward("sigzenbi_central.API.team.set_ai_chat.set_ai_chat",
+                    {"user": user, "enabled": enabled})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_my_superset_password(member_email=None):
+    return _forward("sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
+                    {"member_email": member_email})
+
+
+@frappe.whitelist(allow_guest=True)
+def reset_superset_password(mode="random", new_password=None, member_email=None):
+    return _forward("sigzenbi_central.API.team.superset_credentials.reset_superset_password",
+                    {"mode": mode, "new_password": new_password, "member_email": member_email})

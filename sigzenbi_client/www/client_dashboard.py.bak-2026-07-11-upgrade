@@ -82,21 +82,6 @@ def renew_subscription():
     return _forward("sigzenbi_central.www.client_dashboard.renew_subscription", {})
 
 
-@frappe.whitelist(allow_guest=True)
-def upgrade_subscription(plan=None):
-    """Sid-forwarded proxy for Central's `client_dashboard.upgrade_subscription` (2026-07-11).
-
-    Same sid-only rule as renew_subscription above: NEVER utils.call_central_api, whose
-    tenant-API-key auth would authenticate every caller as the org owner. Central re-derives
-    the tenant from the forwarded session and enforces owner-only, and validates `plan`
-    against the catalog -- we pass it straight through without trusting it."""
-    from sigzenbi_client.API.team_proxy import _forward
-    return _forward(
-        "sigzenbi_central.www.client_dashboard.upgrade_subscription",
-        {"plan": plan},
-    )
-
-
 def get_context(context):
     context.no_cache = 1
 

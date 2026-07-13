@@ -29,7 +29,8 @@ def get_context(context):
             frappe.log_error(title="client_home", message=f"Error fetching central home.html via URL: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load central page content.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("This page", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

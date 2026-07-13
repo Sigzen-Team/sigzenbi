@@ -95,7 +95,7 @@ def trigger_refresh(client_name=None, secret=None):
 	  POST /api/method/sigzenbi_client.API.gateway.execute_query.trigger_refresh
 	"""
 	try:
-		ok, err = validate_secret(secret, client_name=client_name)
+		ok, err = validate_secret(secret)
 		if not ok:
 			frappe.log_error(
 				title="Sigzen Gateway Validation Failure",

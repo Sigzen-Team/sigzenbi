@@ -3,8 +3,6 @@ Proxy AI calls from the client site to Central.
 The client site doesn't have the Claude API key — it routes all AI requests
 through Central using the stored api_key / api_secret credentials.
 """
-import functools
-
 import frappe
 import requests
 from frappe import _
@@ -17,28 +15,8 @@ def _get_central_base():
 	return base_url
 
 
-# _get_client_name is defined once below (the fallback-capable version); the earlier
-# duplicate here was dead code shadowed by it (audit LOW #26).
-
-
-def central_authed(fn):
-	"""Whitelist a portal endpoint that authenticates via the `central_sid` cookie.
-
-	The BI portal session is deliberately NOT a client-site Frappe session (see
-	www/client_login.logout), so for a BI user `frappe.session.user` is always Guest here.
-	allow_guest only lets the request through the door — THIS decorator is the authenticator:
-	`_proxy_auth()` resolves the sid against Central and throws PermissionError before `fn`
-	runs. Authorization (owner-only) is then enforced by Central itself.
-
-	Use this on every portal-facing proxy instead of a bare `@frappe.whitelist()`: it makes the
-	sid check structural, so a new endpoint cannot forget it, and it keeps the door closed to
-	anyone without a valid Central session."""
-	@functools.wraps(fn)
-	def wrapper(*args, **kwargs):
-		_proxy_auth()  # fails closed: no/invalid central_sid -> PermissionError
-		return fn(*args, **kwargs)
-
-	return frappe.whitelist(allow_guest=True)(wrapper)
+def _get_client_name():
+	return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or ""
 
 
 @frappe.whitelist(allow_guest=True)
@@ -111,40 +89,48 @@ def create_chart_from_question(question, chart_title=None):
 		frappe.throw(f"AI service error: {str(e)}")
 
 
-@central_authed
+@frappe.whitelist()
 def get_wallet_balance():
-	"""Proxy credit balance fetch to Central. sid-forwarded (see initiate_razorpay_purchase).
+	"""Proxy credit balance fetch to Central."""
+	base_url = _get_central_base()
+	client_name = _get_client_name()
 
-	Was call_central_api = the TENANT API KEY, i.e. the OWNER's identity regardless of who
-	called — so any client-site ERPNext user could read the org's wallet. Same class of bug the
-	2026-07-10 fix closed for the purchase endpoints; this finishes it. Central now re-derives
-	the client from the forwarded session.
-
-	No silent {"balance": 0} fallback either: a money page must surface an error, never a wrong
-	zero that reads to the customer as "you have no credits"."""
-	from sigzenbi_client.API.team_proxy import _forward
-	return _forward(
-		"sigzenbi_central.API.ai.payment_api.get_wallet_balance",
-		{"client_name": _get_client_name()},
-	)
+	try:
+		from sigzenbi_client.utils import call_central_api
+		res = call_central_api(
+			f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.get_wallet_balance",
+			payload={"client_name": client_name},
+			method="GET",
+			timeout=15,
+		)
+		return res
+	except Exception:
+		pass
+	return {"balance": 0}
 
 
 # --- 2026-07-10: self-serve AI monetization (credit packs + BYOK) proxies ---
-# All sid-forwarded via team_proxy._forward and gated by @central_authed -- NEVER
-# call_central_api, which authenticates with the tenant API key (= the owner's identity
-# regardless of caller) and was the escalation this module's 2026-07-11 fix removed.
-# client_name is always server-derived via _get_client_name() -- never taken from the
-# browser. NEVER log the BYOK api_key.
+# Mirror get_wallet_balance's exact pattern (base_url + client_name resolution,
+# call_central_api imported lazily). client_name is always server-derived here via
+# _get_client_name() -- never taken from the browser. NEVER log the BYOK api_key.
 
-@central_authed
+@frappe.whitelist()
 def get_available_packs():
-	"""Proxy the active AI credit pack list to Central (no client scope). sid-forwarded, so the
-	last tenant-API-key path is gone (see get_wallet_balance)."""
-	from sigzenbi_client.API.team_proxy import _forward
-	return _forward("sigzenbi_central.API.ai.payment_api.get_available_packs", {})
+	"""Proxy the active AI credit pack list to Central (no client scope)."""
+	base_url = _get_central_base()
+	client_name = _get_client_name()
+
+	from sigzenbi_client.utils import call_central_api
+	return call_central_api(
+		f"{base_url}api/method/sigzenbi_central.API.ai.payment_api.get_available_packs",
+		payload={},
+		method="GET",
+		timeout=15,
+		client_name=client_name,
+	)
 
 
-@central_authed
+@frappe.whitelist()
 def initiate_razorpay_purchase(pack_name):
 	"""Create a Razorpay order for a credit pack.
 
@@ -161,7 +147,7 @@ def initiate_razorpay_purchase(pack_name):
 	)
 
 
-@central_authed
+@frappe.whitelist()
 def get_purchase_history(limit=20):
 	"""Proxy AI credit purchase history fetch to Central. sid-forwarded (2026-07-10
 	security fix) -- see initiate_razorpay_purchase for why."""
@@ -172,7 +158,7 @@ def get_purchase_history(limit=20):
 	)
 
 
-@central_authed
+@frappe.whitelist()
 def get_ledger(limit=50):
 	"""Proxy AI credit ledger fetch to Central. sid-forwarded (2026-07-10 security
 	fix) -- see initiate_razorpay_purchase for why."""
@@ -183,7 +169,7 @@ def get_ledger(limit=50):
 	)
 
 
-@central_authed
+@frappe.whitelist()
 def save_byok_key(api_key):
 	"""Proxy BYOK key save/activate to Central. NEVER log api_key -- not even a
 	length/prefix -- it passes straight through to Central over HTTPS and back out.
@@ -198,7 +184,7 @@ def save_byok_key(api_key):
 	)
 
 
-@central_authed
+@frappe.whitelist()
 def remove_byok_key():
 	"""Proxy BYOK key removal (deactivation) to Central. sid-forwarded (2026-07-10
 	security fix) -- see save_byok_key for why no client_name is passed."""
@@ -206,7 +192,7 @@ def remove_byok_key():
 	return _forward("sigzenbi_central.API.ai.byok_api.remove_byok_key", {})
 
 
-@central_authed
+@frappe.whitelist()
 def set_ai_policy(policy_order):
 	"""Proxy AI billing policy selection to Central. sid-forwarded (2026-07-10
 	security fix) -- see save_byok_key for why no client_name is passed."""
@@ -217,7 +203,7 @@ def set_ai_policy(policy_order):
 	)
 
 
-@central_authed
+@frappe.whitelist()
 def get_ai_billing_status():
 	"""Proxy the tenant's AI billing status (policy, BYOK key state, surcharge,
 	wallet balance) fetch to Central. sid-forwarded (2026-07-10 security fix) --
@@ -226,7 +212,7 @@ def get_ai_billing_status():
 	return _forward("sigzenbi_central.API.ai.byok_api.get_ai_billing_status", {})
 
 
-@central_authed
+@frappe.whitelist()
 def get_suggested_questions():
 	"""Proxy suggested questions fetch to Central."""
 	chat_user = _proxy_auth()

@@ -52,7 +52,7 @@ def get_context(context):
 				from sigzenbi_client.utils import call_central_api
 				central_html = call_central_api(
 					url,
-					payload={"client": client_name},
+					payload={"client": client_name, "chat_user": client_user},
 					method="GET",
 					timeout=10
 				)
@@ -64,7 +64,7 @@ def get_context(context):
 				guest_headers = {"Content-Type": "application/json"}
 				response = requests.get(
 					url,
-					params={"client": client_name},
+					params={"client": client_name, "chat_user": client_user},
 					headers=guest_headers,
 					timeout=10
 				)
@@ -74,7 +74,8 @@ def get_context(context):
 			frappe.log_error(title="ai_chat", message=f"Error fetching central ai_chat_frame.html: {e}")
 
 	if not central_html:
-		context.html_content = "<h1>Could not load AI Chat builder.</h1>"
+		from sigzenbi_client.utils import guided_fallback
+		context.html_content = guided_fallback("The AI Chat builder", bool(base_url))
 	else:
 		# Rewrite asset URLs to point to central server
 		if base_url:
@@ -112,6 +113,13 @@ def get_context(context):
 				"sigzenbi_client.API.ai_proxy."
 			)
 
+		# Attach the client session CSRF token to the chat fetches; the Central-authored
+		# callChat() sends POST send_message with no headers -> CSRFTokenError. GET paths
+		# (list_chats/get_chat) are unaffected. Same fix pattern as client_home.py.
+		central_html = central_html.replace(
+			"method: httpMethod || 'GET', credentials: 'include',",
+			"method: httpMethod || 'GET', credentials: 'include', headers: { 'X-Frappe-CSRF-Token': '" + context.csrf_token + "' },",
+		)
 		context.html_content = central_html
 
 	return context

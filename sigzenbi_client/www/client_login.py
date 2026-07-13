@@ -54,7 +54,8 @@ def render_bi_login(context):
             frappe.log_error(title="client_login", message=f"Error fetching central client_login.html: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load login form.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("The login page", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

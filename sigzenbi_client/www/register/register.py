@@ -105,7 +105,8 @@ def render_signup(context):
             frappe.log_error(title="register", message=f"Error fetching central register.html: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Could not load registration form.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("The registration form", bool(base_url))
     else:
         # Rewrite asset URLs to point to central server
         if base_url:

@@ -6,12 +6,10 @@ from urllib.parse import unquote
 def get_context(context):
     context.no_cache = 1
 
-    client_user = None
-    if getattr(frappe.local, "request", None):
-        try:
-            client_user = unquote(frappe.request.cookies.get("client_session_user") or "")
-        except Exception:
-            pass
+    # Identity: a live ERP session wins over a stale client_session_user cookie
+    # (re-vouches on account switch, fails closed) — same resolver as the dashboard.
+    from sigzenbi_client.utils import resolve_bi_user
+    _, client_user = resolve_bi_user()
 
     if not client_user:
         from sigzenbi_client.utils import redirect_without_port
@@ -33,7 +31,8 @@ def get_context(context):
             frappe.log_error(title="template_gallery proxy", message=str(exc))
 
     if not central_html:
-        context.central_html = "<h1>Could not load Template Gallery.</h1>"
+        from sigzenbi_client.utils import guided_fallback
+        context.central_html = guided_fallback("The Template Gallery", bool(base_url))
         return context
 
     # Rewrite asset URLs
