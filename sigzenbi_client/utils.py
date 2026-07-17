@@ -214,6 +214,38 @@ def get_singleton_client_name():
     return frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
 
 
+def _central_error_message(response):
+    """Pull a Central frappe.throw's user-facing text out of an error response so the browser
+    sees a clean message (e.g. "top up your AI credit balance") instead of a raw 417 traceback.
+    Frappe puts throw text in _server_messages (JSON list of JSON strings, each {"message": ...});
+    fall back to `exception`/`message`. Returns None if nothing usable (caller re-raises raw)."""
+    import json as _json, re as _re
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    if not isinstance(body, dict):
+        return None
+    sm = body.get("_server_messages")
+    if sm:
+        try:
+            texts = []
+            for m in _json.loads(sm):
+                try:
+                    texts.append((_json.loads(m) or {}).get("message") or "")
+                except Exception:
+                    texts.append(str(m))
+            joined = " ".join(dict.fromkeys(t for t in texts if t)).strip()  # order-preserving de-dupe (Frappe repeats msgs)
+            if joined:
+                return _re.sub(r"<[^>]+>", "", joined).strip()
+        except Exception:
+            pass
+    exc = body.get("exception") or body.get("message")
+    if isinstance(exc, str) and exc.strip():
+        return (exc.split(":", 1)[-1].strip() if ":" in exc else exc).strip()
+    return None
+
+
 def call_central_api(endpoint_url, payload=None, method="POST", headers=None, cookies=None, timeout=60, client_name=None):
     """
     Sends request to Central with current credentials and atomically
@@ -313,6 +345,12 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
 
             response.raise_for_status()
             data = response.json()
+        except requests.exceptions.HTTPError:
+            # Surface Central's user-facing throw message instead of a raw traceback.
+            _msg = _central_error_message(response)
+            if _msg:
+                frappe.throw(_msg)
+            raise
         except Exception:
             raise
 
@@ -435,3 +473,25 @@ def guided_fallback(page_label, configured):
         f"please refresh in a moment.</p>"
         f"<p>If it keeps happening, contact {SUPPORT_HINT}.</p></div>"
     )
+
+
+def fetch_active_plans(central_url):
+    """Active subscription plans from Central -- same source client_plans.py uses
+    (send_subscription_plan). Returns a list of plan dicts (name/cost/billing_interval/...)
+    or [] on any failure. Public plan catalog, no credentials needed."""
+    if not central_url:
+        return []
+    if not central_url.endswith("/"):
+        central_url += "/"
+    try:
+        r = requests.get(
+            f"{central_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan",
+            timeout=10,
+        )
+        if r.status_code == 200:
+            msg = r.json().get("message") or {}
+            if msg.get("status") == "success":
+                return msg.get("subscription_plan") or []
+    except Exception:
+        frappe.log_error(title="fetch_active_plans", message="Failed to fetch active plans from Central")
+    return []
