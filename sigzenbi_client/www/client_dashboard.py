@@ -97,6 +97,34 @@ def upgrade_subscription(plan=None):
     )
 
 
+def _fetch_subscription_state(client_user):
+    """Credentialed read of THIS tenant's subscription status from Central so the
+    portal can decide whether to render the paywall (Task 5). Reuses call_central_api's
+    api_key/api_secret forwarding (same path dashboard_api uses). Returns the state
+    dict {status,plan,end_date} or None on any failure -- callers fail OPEN to the
+    normal dashboard render (an expired tenant already has no data, per Task 4)."""
+    base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
+    if not base_url:
+        return None
+    if not base_url.endswith('/'):
+        base_url += '/'
+    from sigzenbi_client.utils import call_central_api, get_singleton_client_name
+    from sigzenbi_client.API.dashboard_api import _resolve_client_name_for_email
+    client_name = _resolve_client_name_for_email(client_user) or get_singleton_client_name()
+    if not client_name:
+        return None
+    try:
+        return call_central_api(
+            f"{base_url}api/method/sigzenbi_central.API.entitlements.get_subscription_state",
+            payload={"client_name": client_name},
+            method="POST",
+            client_name=client_name,
+        )
+    except Exception:
+        frappe.log_error(title="client_dashboard_paywall", message="get_subscription_state fetch failed")
+        return None
+
+
 def get_context(context):
     context.no_cache = 1
 
@@ -129,6 +157,19 @@ def get_context(context):
         base_url += '/'
     context.central_url = base_url
     context.csrf_token = frappe.sessions.get_csrf_token()
+
+    # Task 5 paywall: an Expired subscription (trial ended, see Task 4) can still log in
+    # but has no data -- render the choose-a-plan paywall instead of the empty dashboards.
+    # Fail OPEN (state is None) to the normal render on any lookup error. The plan buttons
+    # reuse the existing /client_billing?plan= checkout (Razorpay) -- no new payment code.
+    state = _fetch_subscription_state(user)
+    if state and state.get("status") == "Expired":
+        from sigzenbi_client.utils import fetch_active_plans
+        context.plans = fetch_active_plans(base_url)
+        with open(frappe.get_app_path("sigzenbi_client", "www", "paywall.html"), encoding="utf-8") as _pf:
+            _paywall_src = _pf.read()
+        context.central_html = frappe.render_template(_paywall_src, {"plans": context.plans})
+        return context
 
     # The client site has no Client User doctype, so the "Superset login" card gate is
     # fetched from Central with the sid (mirrors team.py's server-to-server resolve).

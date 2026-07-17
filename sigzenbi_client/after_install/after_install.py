@@ -22,11 +22,46 @@ def create_default_permissions_and_roles():
     create_permission_client()
     create_role_client()
     set_default_subscription_settings()
+    try:
+        ensure_desktop_icon()
+    except Exception:
+        # A desk-tile failure must never block app install.
+        frappe.log_error(title="SigzenBI Desktop Icon", message=frappe.get_traceback())
     # NOTE: no gateway-secret generation at install (C3-completion). The old setup_gateway_secret()
     # minted a RANDOM sigzen_gateway_shared_secret that could never match Central's global — which
     # silently broke per-tenant secret DISTRIBUTION on every fresh self-serve install (the box2 417
     # root cause). Auth is now purely per-tenant: the tenant receives its own gateway_secret at
     # registration (fetch_first_user), authenticated by its api_secret. No shared/global secret.
+
+def ensure_desktop_icon():
+    """Create the 'SigzenBI' App Desktop Icon so the tile shows on the Desk /app grid, driven by
+    the add_to_apps_screen hook. Frappe's own after_app_install DOES call create_desktop_icons(),
+    but its bulk App-icon existence check is broken (tries to re-insert existing App icons ->
+    IntegrityError on multi-app installs), so it can crash before reaching this app. Do it here,
+    idempotently. The Workspace it links to (/desk/sigzenbi) ships as a synced file under
+    sigzenbi_client/workspace/sigzenbi/. Safe to re-run."""
+    if frappe.db.exists("Desktop Icon", {"app": "sigzenbi_client", "icon_type": "App"}):
+        return
+    details = frappe.get_hooks("add_to_apps_screen", app_name="sigzenbi_client")
+    if not details:
+        return
+    d = details[0]
+    label = d.get("title") or "SigzenBI"
+    if frappe.db.exists("Desktop Icon", label):
+        return
+    icon = frappe.new_doc("Desktop Icon")
+    icon.label = label
+    icon.icon_type = "App"
+    icon.link_type = "External"
+    icon.app = "sigzenbi_client"
+    icon.link = d.get("route")
+    icon.logo_url = d.get("logo")
+    icon.standard = 1
+    icon.hidden = 0
+    icon.insert(ignore_permissions=True)
+    frappe.cache.delete_key("desktop_icons")
+    frappe.db.commit()
+
 
 def set_default_subscription_settings():
     # Idempotent + fail-forward: only SEED the hub URLs when unset, so a re-install or an

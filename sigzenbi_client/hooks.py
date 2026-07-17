@@ -232,3 +232,7 @@ scheduler_events = {
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
+
+
+# --- SigzenBI app card on the Desk apps screen (mirrors india_compliance) ---
+add_to_apps_screen = [{"name":"sigzenbi_client","logo":"/assets/sigzenbi_client/images/sigzenbi.svg","title":"SigzenBI","route":"/desk/sigzenbi","has_permission":"sigzenbi_client.check_app_permission"}]
