@@ -41,6 +41,75 @@ def central_authed(fn):
 	return frappe.whitelist(allow_guest=True)(wrapper)
 
 
+# --- Central call wrapper: never leak a Python error to the browser -------------------
+# EVERY AI proxy call goes through here. A bare call_central_api lets requests.HTTPError
+# propagate out of the whitelisted method, and Frappe then returns the FULL traceback in
+# the response `exc` field -- which the chat UI rendered verbatim, exposing internal file
+# paths (apps/sigzenbi_client/..., env/lib/pythonX/site-packages/...) to tenant users.
+# The old ad-hoc `f"AI service error: {str(e)}"` handlers leaked the internal Central URL
+# the same way.
+#
+# Central's own user-facing throws ("AI chat is not enabled for your account", an
+# insufficient-credits notice) are PRESERVED so the user still gets an actionable message;
+# anything else collapses to one generic line, with the real detail kept in the Error Log.
+_LEAKY_MARKERS = (
+	"Traceback (most recent call last)",
+	'File "',
+	"site-packages/",
+	"sigzenbi_client/",
+	"apps/frappe/",
+)
+
+
+def _central_user_message(exc):
+	"""Central's explicit user-facing message, if it sent one and it is safe to show."""
+	response = getattr(exc, "response", None)
+	if response is None:
+		return None
+	try:
+		raw = (response.json() or {}).get("_server_messages")
+	except Exception:
+		return None
+	if not raw:
+		return None
+	try:
+		import json as _json
+
+		parts = []
+		for item in _json.loads(raw):
+			try:
+				parts.append((_json.loads(item) or {}).get("message") or "")
+			except Exception:
+				parts.append(str(item))
+		msg = " ".join(p.strip() for p in parts if p and p.strip())
+	except Exception:
+		return None
+
+	import re as _re
+
+	msg = _re.sub(r"<[^>]+>", "", msg or "").strip()
+	if not msg or any(marker in msg for marker in _LEAKY_MARKERS):
+		return None
+	return msg
+
+
+def _call_central_ai(*args, **kwargs):
+	"""call_central_api, with every failure converted into a clean user-facing throw."""
+	from sigzenbi_client.utils import call_central_api as _raw_call_central
+
+	try:
+		return _raw_call_central(*args, **kwargs)
+	except requests.exceptions.Timeout:
+		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
+		frappe.throw(_("The AI assistant took too long to respond. Please try again."))
+	except Exception as e:
+		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
+		frappe.throw(
+			_central_user_message(e)
+			or _("The AI assistant is temporarily unavailable. Please try again in a few minutes.")
+		)
+
+
 @frappe.whitelist(allow_guest=True)
 def generate_sql_from_question(question):
 	"""Proxy NL2SQL question to Central."""
@@ -57,8 +126,7 @@ def generate_sql_from_question(question):
 	client_name = _get_client_name()
 
 	try:
-		from sigzenbi_client.utils import call_central_api
-		res = call_central_api(
+		res = _call_central_ai(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
 			payload={"client_name": client_name, "chat_user": chat_user, "question": question.strip()},
 			method="POST",
@@ -67,9 +135,11 @@ def generate_sql_from_question(question):
 		return res
 	except requests.exceptions.Timeout:
 		frappe.throw("AI request timed out. Please try again.")
-	except Exception as e:
-		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
-		frappe.throw(f"AI service error: {str(e)}")
+	except Exception:
+		# _call_central_ai has already logged the traceback and thrown a clean, user-safe
+		# message -- re-raise it unchanged. The old f"AI service error: {str(e)}" re-wrap
+		# leaked the internal Central URL out of the requests.HTTPError string.
+		raise
 
 
 @frappe.whitelist(allow_guest=True)
@@ -96,8 +166,7 @@ def create_chart_from_question(question, chart_title=None):
 		payload["chart_title"] = chart_title
 
 	try:
-		from sigzenbi_client.utils import call_central_api
-		res = call_central_api(
+		res = _call_central_ai(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
 			payload=payload,
 			method="POST",
@@ -106,9 +175,11 @@ def create_chart_from_question(question, chart_title=None):
 		return res
 	except requests.exceptions.Timeout:
 		frappe.throw("AI chart creation timed out. Please try again.")
-	except Exception as e:
-		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
-		frappe.throw(f"AI service error: {str(e)}")
+	except Exception:
+		# _call_central_ai has already logged the traceback and thrown a clean, user-safe
+		# message -- re-raise it unchanged. The old f"AI service error: {str(e)}" re-wrap
+		# leaked the internal Central URL out of the requests.HTTPError string.
+		raise
 
 
 @central_authed
@@ -234,8 +305,7 @@ def get_suggested_questions():
 	client_name = _get_client_name()
 
 	try:
-		from sigzenbi_client.utils import call_central_api
-		res = call_central_api(
+		res = _call_central_ai(
 			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.get_suggested_questions",
 			payload={"client_name": client_name, "chat_user": chat_user},
 			method="GET",
@@ -279,8 +349,7 @@ def preview_query_from_question(question=None, client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	if not question or not str(question).strip():
 		frappe.throw(_("Question cannot be empty."))
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.nl2sql_api.preview_query_from_question",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "question": str(question).strip()},
 		method="GET", timeout=90,
@@ -293,8 +362,7 @@ def save_chart_from_sql(sql=None, chart_title=None, client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	if not sql:
 		frappe.throw(_("SQL is required."))
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.nl2sql_api.save_chart_from_sql",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "sql": sql, "chart_title": chart_title or "AI Chart"},
 		method="GET", timeout=90,
@@ -305,8 +373,7 @@ def save_chart_from_sql(sql=None, chart_title=None, client_name=None, **kwargs):
 def list_client_dashboards(client_name=None, **kwargs):
 	"""Proxy the tenant's dashboard list (for the 'Add to dashboard' picker)."""
 	chat_user = _proxy_auth()
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.list_client_dashboards",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user},
 		method="GET", timeout=30,
@@ -317,8 +384,7 @@ def list_client_dashboards(client_name=None, **kwargs):
 def add_chart_to_dashboard(chart_id=None, dashboard_id=None, client_name=None, **kwargs):
 	"""Proxy pin-chart-to-existing-dashboard to Central."""
 	chat_user = _proxy_auth()
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.add_chart_to_dashboard",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chart_id": chart_id, "dashboard_id": dashboard_id},
 		method="GET", timeout=60,
@@ -329,8 +395,7 @@ def add_chart_to_dashboard(chart_id=None, dashboard_id=None, client_name=None, *
 def create_dashboard_with_chart(chart_id=None, dashboard_title=None, client_name=None, **kwargs):
 	"""Proxy create-new-dashboard-with-chart to Central."""
 	chat_user = _proxy_auth()
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.create_dashboard_with_chart",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chart_id": chart_id, "dashboard_title": dashboard_title or "AI Dashboard"},
 		method="GET", timeout=90,
@@ -342,8 +407,7 @@ def create_dashboard_with_chart(chart_id=None, dashboard_title=None, client_name
 @frappe.whitelist(allow_guest=True)
 def start_chat(client_name=None, **kwargs):
 	chat_user = _proxy_auth()
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.start_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user},
 		method="POST", timeout=30,
@@ -358,8 +422,7 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 	payload = {"client_name": _get_client_name(), "chat_user": chat_user, "message": str(message).strip()}
 	if chat_id:
 		payload["chat_id"] = chat_id
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.send_message",
 		payload=payload, method="POST", timeout=180,
 	)
@@ -368,8 +431,7 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 @frappe.whitelist(allow_guest=True)
 def list_chats(client_name=None, limit=50, **kwargs):
 	chat_user = _proxy_auth()
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.list_chats",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "limit": limit},
 		method="GET", timeout=30,
@@ -381,8 +443,7 @@ def get_chat(chat_id=None, client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	if not chat_id:
 		frappe.throw(_("chat_id is required."))
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.get_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id},
 		method="GET", timeout=60,
@@ -394,8 +455,7 @@ def delete_chat(chat_id=None, client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	if not chat_id:
 		frappe.throw(_("chat_id is required."))
-	from sigzenbi_client.utils import call_central_api
-	return call_central_api(
+	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.delete_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id},
 		method="POST", timeout=30,
