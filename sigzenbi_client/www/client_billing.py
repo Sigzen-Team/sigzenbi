@@ -67,7 +67,7 @@ def get_context(context):
     if base_url and central_sid:
         try:
             _o = requests.get(
-                f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
+                f"{base_url}api/method/sigzenbi_central.API.billing.byok_api.get_ai_billing_status",
                 cookies={"sid": central_sid}, timeout=20)
             if _o.ok:
                 context.is_owner = 1

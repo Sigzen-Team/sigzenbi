@@ -5,6 +5,8 @@ through Central using the stored api_key / api_secret credentials.
 """
 import functools
 
+import re
+
 import frappe
 import requests
 from frappe import _
@@ -93,12 +95,44 @@ def _central_user_message(exc):
 	return msg
 
 
+# Central is regrouping API/ai into API/{billing,semantic,bi_chat,ai_chat} (PLAN Phase 0).
+# The two boxes deploy independently, so for one release this client must work against
+# EITHER layout: call the new path, and if Central 404s it (i.e. Central has not deployed
+# the move yet) retry once on the legacy path. Delete _legacy_central_path and this retry
+# once Central's move is confirmed live -- it is a deploy-window shim, not architecture.
+_LEGACY_BUCKETS = re.compile(
+	r"sigzenbi_central\.API\.(?:billing|semantic|bi_chat|ai_chat)\.(?=\w)"
+)
+
+
+def _legacy_central_path(value):
+	"""Map a post-regroup Central method path back to its pre-regroup API.ai form."""
+	if not isinstance(value, str):
+		return value
+	return _LEGACY_BUCKETS.sub("sigzenbi_central.API.ai.", value)
+
+
+def _is_not_found(exc):
+	response = getattr(exc, "response", None)
+	return getattr(response, "status_code", None) == 404
+
+
 def _call_central_ai(*args, **kwargs):
 	"""call_central_api, with every failure converted into a clean user-facing throw."""
 	from sigzenbi_client.utils import call_central_api as _raw_call_central
 
 	try:
-		return _raw_call_central(*args, **kwargs)
+		try:
+			return _raw_call_central(*args, **kwargs)
+		except Exception as exc:
+			# Only a 404 means "wrong layout"; anything else is a real error and must
+			# NOT be retried (a retried payment call would be a double charge).
+			if not (_is_not_found(exc) and args):
+				raise
+			legacy = (_legacy_central_path(args[0]),) + args[1:]
+			if legacy[0] == args[0]:
+				raise
+			return _raw_call_central(*legacy, **kwargs)
 	except requests.exceptions.Timeout:
 		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
 		frappe.throw(_("The AI assistant took too long to respond. Please try again."))
@@ -127,7 +161,7 @@ def generate_sql_from_question(question):
 
 	try:
 		res = _call_central_ai(
-			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
+			f"{base_url}api/method/sigzenbi_central.API.semantic.nl2sql_api.generate_sql_from_question",
 			payload={"client_name": client_name, "chat_user": chat_user, "question": question.strip()},
 			method="POST",
 			timeout=60,
@@ -167,7 +201,7 @@ def create_chart_from_question(question, chart_title=None):
 
 	try:
 		res = _call_central_ai(
-			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
+			f"{base_url}api/method/sigzenbi_central.API.semantic.nl2sql_api.create_chart_from_question",
 			payload=payload,
 			method="POST",
 			timeout=90,
@@ -195,7 +229,7 @@ def get_wallet_balance():
 	zero that reads to the customer as "you have no credits"."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.payment_api.get_wallet_balance",
+		"sigzenbi_central.API.billing.payment_api.get_wallet_balance",
 		{"client_name": _get_client_name()},
 	)
 
@@ -212,7 +246,7 @@ def get_available_packs():
 	"""Proxy the active AI credit pack list to Central (no client scope). sid-forwarded, so the
 	last tenant-API-key path is gone (see get_wallet_balance)."""
 	from sigzenbi_client.API.team_proxy import _forward
-	return _forward("sigzenbi_central.API.ai.payment_api.get_available_packs", {})
+	return _forward("sigzenbi_central.API.billing.payment_api.get_available_packs", {})
 
 
 @central_authed
@@ -227,7 +261,7 @@ def initiate_razorpay_purchase(pack_name):
 	still passed so Central can verify it against the sid's actual access."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
+		"sigzenbi_central.API.billing.payment_api.initiate_razorpay_purchase",
 		{"client_name": _get_client_name(), "pack_name": pack_name},
 	)
 
@@ -238,7 +272,7 @@ def get_purchase_history(limit=20):
 	security fix) -- see initiate_razorpay_purchase for why."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.payment_api.get_purchase_history",
+		"sigzenbi_central.API.billing.payment_api.get_purchase_history",
 		{"client_name": _get_client_name(), "limit": limit},
 	)
 
@@ -249,7 +283,7 @@ def get_ledger(limit=50):
 	fix) -- see initiate_razorpay_purchase for why."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.payment_api.get_ledger",
+		"sigzenbi_central.API.billing.payment_api.get_ledger",
 		{"client_name": _get_client_name(), "limit": limit},
 	)
 
@@ -264,7 +298,7 @@ def save_byok_key(api_key):
 	no client_name is passed here -- adding one would be an unexpected kwarg."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.byok_api.save_byok_key",
+		"sigzenbi_central.API.billing.byok_api.save_byok_key",
 		{"api_key": api_key},
 	)
 
@@ -274,7 +308,7 @@ def remove_byok_key():
 	"""Proxy BYOK key removal (deactivation) to Central. sid-forwarded (2026-07-10
 	security fix) -- see save_byok_key for why no client_name is passed."""
 	from sigzenbi_client.API.team_proxy import _forward
-	return _forward("sigzenbi_central.API.ai.byok_api.remove_byok_key", {})
+	return _forward("sigzenbi_central.API.billing.byok_api.remove_byok_key", {})
 
 
 @central_authed
@@ -283,7 +317,7 @@ def set_ai_policy(policy_order):
 	security fix) -- see save_byok_key for why no client_name is passed."""
 	from sigzenbi_client.API.team_proxy import _forward
 	return _forward(
-		"sigzenbi_central.API.ai.byok_api.set_ai_policy",
+		"sigzenbi_central.API.billing.byok_api.set_ai_policy",
 		{"policy_order": policy_order},
 	)
 
@@ -294,7 +328,7 @@ def get_ai_billing_status():
 	wallet balance) fetch to Central. sid-forwarded (2026-07-10 security fix) --
 	see save_byok_key for why no client_name is passed."""
 	from sigzenbi_client.API.team_proxy import _forward
-	return _forward("sigzenbi_central.API.ai.byok_api.get_ai_billing_status", {})
+	return _forward("sigzenbi_central.API.billing.byok_api.get_ai_billing_status", {})
 
 
 @central_authed
@@ -306,7 +340,7 @@ def get_suggested_questions():
 
 	try:
 		res = _call_central_ai(
-			f"{base_url}api/method/sigzenbi_central.API.ai.nl2sql_api.get_suggested_questions",
+			f"{base_url}api/method/sigzenbi_central.API.semantic.nl2sql_api.get_suggested_questions",
 			payload={"client_name": client_name, "chat_user": chat_user},
 			method="GET",
 			timeout=15,
@@ -350,7 +384,7 @@ def preview_query_from_question(question=None, client_name=None, **kwargs):
 	if not question or not str(question).strip():
 		frappe.throw(_("Question cannot be empty."))
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.nl2sql_api.preview_query_from_question",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.semantic.nl2sql_api.preview_query_from_question",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "question": str(question).strip()},
 		method="GET", timeout=90,
 	)
@@ -363,7 +397,7 @@ def save_chart_from_sql(sql=None, chart_title=None, client_name=None, **kwargs):
 	if not sql:
 		frappe.throw(_("SQL is required."))
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.nl2sql_api.save_chart_from_sql",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.semantic.nl2sql_api.save_chart_from_sql",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "sql": sql, "chart_title": chart_title or "AI Chart"},
 		method="GET", timeout=90,
 	)
@@ -374,7 +408,7 @@ def list_client_dashboards(client_name=None, **kwargs):
 	"""Proxy the tenant's dashboard list (for the 'Add to dashboard' picker)."""
 	chat_user = _proxy_auth()
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.list_client_dashboards",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.bi_chat.chat_dashboard.list_client_dashboards",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user},
 		method="GET", timeout=30,
 	)
@@ -385,7 +419,7 @@ def add_chart_to_dashboard(chart_id=None, dashboard_id=None, client_name=None, *
 	"""Proxy pin-chart-to-existing-dashboard to Central."""
 	chat_user = _proxy_auth()
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.add_chart_to_dashboard",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.bi_chat.chat_dashboard.add_chart_to_dashboard",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chart_id": chart_id, "dashboard_id": dashboard_id},
 		method="GET", timeout=60,
 	)
@@ -396,7 +430,7 @@ def create_dashboard_with_chart(chart_id=None, dashboard_title=None, client_name
 	"""Proxy create-new-dashboard-with-chart to Central."""
 	chat_user = _proxy_auth()
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_dashboard.create_dashboard_with_chart",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.bi_chat.chat_dashboard.create_dashboard_with_chart",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chart_id": chart_id, "dashboard_title": dashboard_title or "AI Dashboard"},
 		method="GET", timeout=90,
 	)
@@ -408,7 +442,7 @@ def create_dashboard_with_chart(chart_id=None, dashboard_title=None, client_name
 def start_chat(client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.start_chat",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.start_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user},
 		method="POST", timeout=30,
 	)
@@ -423,7 +457,7 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 	if chat_id:
 		payload["chat_id"] = chat_id
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.send_message",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.send_message",
 		payload=payload, method="POST", timeout=180,
 	)
 
@@ -432,7 +466,7 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 def list_chats(client_name=None, limit=50, **kwargs):
 	chat_user = _proxy_auth()
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.list_chats",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.list_chats",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "limit": limit},
 		method="GET", timeout=30,
 	)
@@ -444,7 +478,7 @@ def get_chat(chat_id=None, client_name=None, **kwargs):
 	if not chat_id:
 		frappe.throw(_("chat_id is required."))
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.get_chat",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.get_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id},
 		method="GET", timeout=60,
 	)
@@ -456,7 +490,7 @@ def delete_chat(chat_id=None, client_name=None, **kwargs):
 	if not chat_id:
 		frappe.throw(_("chat_id is required."))
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai.chat_api.delete_chat",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.delete_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id},
 		method="POST", timeout=30,
 	)
