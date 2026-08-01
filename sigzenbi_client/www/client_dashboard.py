@@ -158,12 +158,35 @@ def get_context(context):
     context.central_url = base_url
     context.csrf_token = frappe.sessions.get_csrf_token()
 
-    # Task 5 paywall: an Expired subscription (trial ended, see Task 4) can still log in
-    # but has no data -- render the choose-a-plan paywall instead of the empty dashboards.
-    # Fail OPEN (state is None) to the normal render on any lookup error. The plan buttons
-    # reuse the existing /client_billing?plan= checkout (Razorpay) -- no new payment code.
+    # Paywall (PLAN P23.10). THREE states, not two -- that distinction is the whole fix:
+    #
+    #   entitled       render the dashboards
+    #   not entitled   render the paywall (shown-and-paywalled, SPEC 7 -- an upsell
+    #                  converts, a hidden menu item just looks broken)
+    #   UNKNOWN        render neither
+    #
+    # This used to FAIL OPEN: any Central lookup error left state=None and fell through
+    # to the normal render, so an expired tenant saw their dashboards whenever Central
+    # was slow or unreachable. A gate that fails open is not a gate.
+    #
+    # But failing straight to the paywall would tell a PAYING customer they have not
+    # paid, on a transient blip. So unknown gets its own screen: no data, no false
+    # accusation, and a refresh. Same pattern client_billing.py already uses for
+    # owner_check_failed.
+    #
+    # This is UX only. Central refuses the endpoints regardless of what is rendered here
+    # (P23.8) -- nothing below grants anything.
     state = _fetch_subscription_state(user)
-    if state and state.get("status") == "Expired":
+    if state is None:
+        context.entitlement_unknown = 1
+        from sigzenbi_client.utils import guided_fallback
+
+        context.central_html = guided_fallback("Your dashboard", True)
+        return context
+
+    # BI specifically, not just "is the subscription alive": an AI-only tenant has an
+    # Active subscription and still must not be shown dashboards they did not buy.
+    if state.get("status") == "Expired" or not state.get("bi", True):
         from sigzenbi_client.utils import fetch_active_plans
         context.plans = fetch_active_plans(base_url)
         with open(frappe.get_app_path("sigzenbi_client", "www", "paywall.html"), encoding="utf-8") as _pf:
