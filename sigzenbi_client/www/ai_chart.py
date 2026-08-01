@@ -88,14 +88,8 @@ def get_context(context):
 			central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
 			# Intercept the AI proxy endpoints to use client-side whitelisted proxies
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
-				"sigzenbi_client.API.ai_proxy.create_chart_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
-				"sigzenbi_client.API.ai_proxy.generate_sql_from_question"
-			)
+			from sigzenbi_client.utils import route_ai_methods_to_proxy
+			central_html = route_ai_methods_to_proxy(central_html)
 
 		context.html_content = central_html
 

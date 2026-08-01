@@ -254,38 +254,8 @@ def get_context(context):
             # though client_dashboard.html itself doesn't call them yet -- this keeps
             # client_billing.html/nav (phase2-9/Task 9) working without a second pass
             # over this file.
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_available_packs",
-                "sigzenbi_client.API.ai_proxy.get_available_packs"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
-                "sigzenbi_client.API.ai_proxy.initiate_razorpay_purchase"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_purchase_history",
-                "sigzenbi_client.API.ai_proxy.get_purchase_history"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_ledger",
-                "sigzenbi_client.API.ai_proxy.get_ledger"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.save_byok_key",
-                "sigzenbi_client.API.ai_proxy.save_byok_key"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.remove_byok_key",
-                "sigzenbi_client.API.ai_proxy.remove_byok_key"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.set_ai_policy",
-                "sigzenbi_client.API.ai_proxy.set_ai_policy"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
-                "sigzenbi_client.API.ai_proxy.get_ai_billing_status"
-            )
+            from sigzenbi_client.utils import route_ai_methods_to_proxy
+            central_html = route_ai_methods_to_proxy(central_html)
             # Fix: the Renew button called this Central www method name directly
             # against the client origin (unproxied -> 404, see renew_subscription()
             # below). Route it through the sid-forwarded client proxy instead.

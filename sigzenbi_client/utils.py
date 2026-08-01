@@ -495,3 +495,61 @@ def fetch_active_plans(central_url):
     except Exception:
         frappe.log_error(title="fetch_active_plans", message="Failed to fetch active plans from Central")
     return []
+
+
+# --- Central AI method routing (PLAN P0.5) -----------------------------------
+# Every AI call in a Central-authored template must be rewritten to a client-side
+# sid-forwarding proxy: the browser must NEVER hit the Central domain (root
+# CLAUDE.md rule). This used to be ~50 lines of duplicated str.replace() across
+# ai_chat.py, ai_chart.py, client_billing.py and client_dashboard.py.
+#
+# The bucket segment is a WILDCARD on purpose. Central is regrouping API/ai into
+# API/{billing,semantic,bi_chat,ai_chat} (PLAN Phase 0); a hardcoded ".API.ai."
+# would silently become a no-op the moment that lands -- str.replace() does not
+# raise when its source key is absent, so the browser would just start calling
+# Central directly. Matching any bucket makes this survive the move, and any
+# future one, with no deploy-ordering dependency between the two boxes.
+_BUCKETS = "ai|billing|semantic|bi_chat|ai_chat"
+
+# (module, methods) -- methods=None means "every method on this module", which is
+# what the chat_api./chat_dashboard. prefix rewrites did before. Deliberately kept:
+# an unproxied method left pointing at Central is a cross-origin call, which is a
+# worse failure than a 404 on the client.
+_AI_ROUTES = (
+	("nl2sql_api", ("create_chart_from_question", "generate_sql_from_question",
+	                "preview_query_from_question", "save_chart_from_sql")),
+	("chat_dashboard", None),
+	("chat_api", None),
+	("payment_api", ("get_available_packs", "initiate_razorpay_purchase",
+	                 "get_purchase_history", "get_ledger", "get_wallet_balance")),
+	("byok_api", ("save_byok_key", "remove_byok_key", "set_ai_policy",
+	              "get_ai_billing_status")),
+)
+
+
+def route_ai_methods_to_proxy(html):
+	"""Rewrite Central AI method paths in a fetched template to client proxies.
+
+	Bucket-agnostic: works before and after Central's API/ai regroup.
+	Applying a rule whose method is absent from the html is a no-op, so this is
+	safe to call from every page rather than maintaining a per-page subset.
+	"""
+	import re
+
+	if not html:
+		return html
+	for module, methods in _AI_ROUTES:
+		if methods is None:
+			html = re.sub(
+				rf"sigzenbi_central\.API\.(?:{_BUCKETS})\.{module}\.",
+				"sigzenbi_client.API.ai_proxy.",
+				html,
+			)
+			continue
+		for method in methods:
+			html = re.sub(
+				rf"sigzenbi_central\.API\.(?:{_BUCKETS})\.{module}\.{method}\b",
+				f"sigzenbi_client.API.ai_proxy.{method}",
+				html,
+			)
+	return html

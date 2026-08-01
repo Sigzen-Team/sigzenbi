@@ -109,18 +109,11 @@ def get_context(context):
     # Route every AI billing method the page's JS calls to the client-side sid-forwarding
     # proxies -- the browser must never hit the Central domain (root CLAUDE.md rule).
     rewrites = {
-        "sigzenbi_central.API.ai.payment_api.get_available_packs": "sigzenbi_client.API.ai_proxy.get_available_packs",
-        "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase": "sigzenbi_client.API.ai_proxy.initiate_razorpay_purchase",
-        "sigzenbi_central.API.ai.payment_api.get_purchase_history": "sigzenbi_client.API.ai_proxy.get_purchase_history",
-        "sigzenbi_central.API.ai.payment_api.get_ledger": "sigzenbi_client.API.ai_proxy.get_ledger",
-        "sigzenbi_central.API.ai.payment_api.get_wallet_balance": "sigzenbi_client.API.ai_proxy.get_wallet_balance",
-        "sigzenbi_central.API.ai.byok_api.save_byok_key": "sigzenbi_client.API.ai_proxy.save_byok_key",
-        "sigzenbi_central.API.ai.byok_api.remove_byok_key": "sigzenbi_client.API.ai_proxy.remove_byok_key",
-        "sigzenbi_central.API.ai.byok_api.set_ai_policy": "sigzenbi_client.API.ai_proxy.set_ai_policy",
-        "sigzenbi_central.API.ai.byok_api.get_ai_billing_status": "sigzenbi_client.API.ai_proxy.get_ai_billing_status",
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
         "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",
     }
+    from sigzenbi_client.utils import route_ai_methods_to_proxy
+    central_html = route_ai_methods_to_proxy(central_html)
     for central_method, client_method in rewrites.items():
         central_html = central_html.replace(central_method, client_method)
 

@@ -88,30 +88,8 @@ def get_context(context):
 			central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
 			# Intercept the AI proxy endpoints to use client-side whitelisted proxies
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
-				"sigzenbi_client.API.ai_proxy.create_chart_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
-				"sigzenbi_client.API.ai_proxy.generate_sql_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.preview_query_from_question",
-				"sigzenbi_client.API.ai_proxy.preview_query_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.save_chart_from_sql",
-				"sigzenbi_client.API.ai_proxy.save_chart_from_sql"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.chat_dashboard.",
-				"sigzenbi_client.API.ai_proxy."
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.chat_api.",
-				"sigzenbi_client.API.ai_proxy."
-			)
+			from sigzenbi_client.utils import route_ai_methods_to_proxy
+			central_html = route_ai_methods_to_proxy(central_html)
 
 		# Attach the client session CSRF token to the chat fetches; the Central-authored
 		# callChat() sends POST send_message with no headers -> CSRFTokenError. GET paths
