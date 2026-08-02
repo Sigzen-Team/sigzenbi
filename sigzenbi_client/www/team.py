@@ -74,6 +74,14 @@ def get_context(context):
     central_html = central_html.replace(
         "sigzenbi_central.API.team.set_ai_chat.set_ai_chat",
         "sigzenbi_client.API.team_proxy.set_ai_chat")
+    # Seat model (2026-08-02). Both live in set_seat_type.py on Central; the client
+    # proxies them separately so each keeps its own sid-forwarding entry point.
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.set_seat_type.set_seat_type",
+        "sigzenbi_client.API.team_proxy.set_seat_type")
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.set_seat_type.set_team_admin",
+        "sigzenbi_client.API.team_proxy.set_team_admin")
     central_html = central_html.replace(
         "sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
         "sigzenbi_client.API.team_proxy.get_my_superset_password")
