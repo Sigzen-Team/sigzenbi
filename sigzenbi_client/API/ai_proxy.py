@@ -519,45 +519,66 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 
 
 def _send_chat(method, message, chat_id):
-    """Shared forwarder for the two product send paths.
+	"""Shared forwarder for the two product send paths.
 
-    ONE body, because the only thing that differs is which Central method is called --
-    the licence/seat decision belongs to Central and must not be re-implemented here.
-    The browser supplies neither client_name nor chat_user: both are server-derived,
-    exactly as the legacy send_message does.
-    """
-    chat_user = _proxy_auth()
-    if not message or not str(message).strip():
-        frappe.throw(_("Message cannot be empty."))
-    payload = {"client_name": _get_client_name(), "chat_user": chat_user,
-               "message": str(message).strip()}
-    if chat_id:
-        payload["chat_id"] = chat_id
-    return _call_central_ai(
-        f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{method}",
-        payload=payload, method="POST", timeout=180,
-    )
+	ONE body, because the only thing that differs is which Central method is called --
+	the licence/seat decision belongs to Central and must not be re-implemented here.
+	The browser supplies neither client_name nor chat_user: both are server-derived,
+	exactly as the legacy send_message does.
+	"""
+	chat_user = _proxy_auth()
+	if not message or not str(message).strip():
+		frappe.throw(_("Message cannot be empty."))
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user,
+			"message": str(message).strip()}
+	if chat_id:
+		payload["chat_id"] = chat_id
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{method}",
+		payload=payload, method="POST", timeout=180,
+	)
 
 
 @frappe.whitelist(allow_guest=True)
 def send_build_message(message=None, chat_id=None, client_name=None, **kwargs):
-    """BUILD chat -- dashboards and charts. Analyst seat, NO SigzenAI licence."""
-    return _send_chat("send_build_message", message, chat_id)
+	"""BUILD chat -- dashboards and charts. Analyst seat, NO SigzenAI licence."""
+	return _send_chat("send_build_message", message, chat_id)
 
 
 @frappe.whitelist(allow_guest=True)
 def send_interactive_message(message=None, chat_id=None, client_name=None, **kwargs):
-    """ASK AI -- conversational analysis. Requires a SigzenAI licence (asserted on Central)."""
-    return _send_chat("send_interactive_message", message, chat_id)
+	"""ASK AI -- conversational analysis. Requires a SigzenAI licence (asserted on Central)."""
+	return _send_chat("send_interactive_message", message, chat_id)
 
 
 @frappe.whitelist(allow_guest=True)
-def list_chats(client_name=None, limit=50, **kwargs):
+def list_chats(client_name=None, limit=25, offset=0, product=None, q=None, **kwargs):
+	"""Forward the history filters. client_name/chat_user stay server-derived; the rest
+	are display parameters Central re-validates and caps."""
 	chat_user = _proxy_auth()
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user,
+	           "limit": limit, "offset": offset}
+	if product:
+		payload["product"] = product
+	if q:
+		payload["q"] = q
 	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.list_chats",
-		payload={"client_name": _get_client_name(), "chat_user": chat_user, "limit": limit},
-		method="GET", timeout=30,
+		payload=payload, method="GET", timeout=30,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def rename_chat(chat_id=None, title=None, client_name=None, **kwargs):
+	"""Let a user name a conversation. Central enforces ownership via _assert_chat_access."""
+	chat_user = _proxy_auth()
+	if not chat_id:
+		frappe.throw(_("chat_id is required."))
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.rename_chat",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user,
+		         "chat_id": chat_id, "title": title},
+		method="POST", timeout=30,
 	)
 
 
