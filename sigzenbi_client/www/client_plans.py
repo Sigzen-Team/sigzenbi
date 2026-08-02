@@ -4,6 +4,21 @@ import requests
 import json
 
 def get_context(context):
+    # NEVER serve this page from the shared website_page cache.
+    #
+    # frappe's TemplatePage.get_html is wrapped in @cache_html, whose redis key is
+    # `{site}|website_page::client_plans` -- PATH AND LANG ONLY, no user. Without
+    # `no_cache` the first visitor of any 30-minute window has their rendered page
+    # handed to every later visitor, and get_context is never called again. Proven
+    # 2026-08-02: three bare GETs of /client_plans ran this function exactly ONCE.
+    # That is why the per-user admin redirect below "did not fire" -- it was live code
+    # the request never reached, and editing this file + restarting supervisor does not
+    # invalidate the redis entry either, so the pre-edit HTML kept being served.
+    # It also meant a per-session csrf_token and is_logged_in were baked into a cache
+    # entry shared across users. can_cache happens to bail on a query string, so
+    # /client_plans?x=1 always ran the controller -- which is what made this easy to miss.
+    context.no_cache = 1
+
     central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central.sigzenone.com"
     if central_url and not central_url.endswith('/'):
         central_url += '/'
@@ -16,8 +31,37 @@ def get_context(context):
     # other client page does (resolve_bi_user, central_sid-backed -- never a request
     # param) and route them to the in-portal upgrade page instead.
     from sigzenbi_client.utils import resolve_bi_user
-    _, current_bi_user = resolve_bi_user()
+    central_sid, current_bi_user = resolve_bi_user()
     context.is_logged_in = bool(current_bi_user)
+
+    # ONE surface for changing a plan, and it is /client_billing (2026-08-02). This page
+    # is the public shop window -- no sidebar entry, reached only from footer "Plans"
+    # links, the home CTA and a cancelled checkout. Since /client_billing grew a tier
+    # picker the two can disagree, so an ADMIN who lands here is sent to the account page.
+    # A member or an anonymous visitor keeps the read-only pricing page: /client_billing
+    # is admin-gated and would only tell them the page is managed by their owner.
+    #
+    # can_manage_superset_login is the SAME flag that decides whether the Billing link
+    # appears in this user's sidebar -- one admin signal, so the two cannot drift apart.
+    # Fails OPEN (Central unreachable or non-200 -> no redirect): showing pricing is
+    # harmless, bouncing someone onto a page they cannot use is not. The redirect call
+    # is deliberately outside every try/except -- redirect_without_port raises
+    # frappe.Redirect, which a surrounding `except Exception` would swallow.
+    if central_sid and current_bi_user:
+        from sigzenbi_client.www.client_dashboard import central_get_with_sid
+        _res = central_get_with_sid(
+            central_url + "api/method/"
+            "sigzenbi_central.API.team.superset_credentials.can_manage_superset_login",
+            central_sid)
+        _can_manage = 0
+        if _res is not None and _res.status_code == 200:
+            try:
+                _can_manage = (_res.json().get("message") or {}).get("can_manage", 0)
+            except Exception:
+                _can_manage = 0
+        if _can_manage:
+            from sigzenbi_client.utils import redirect_without_port
+            redirect_without_port("/client_billing")  # raises frappe.Redirect
     context.current_plan_name = frappe.db.get_single_value(
         'SigzenBI Subscription Settings', 'subscription_plan_name') or ''
 
