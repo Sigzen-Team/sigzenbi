@@ -80,6 +80,12 @@ def get_context(context):
 
         # Replace the central inquiry submit URL with client proxy URL
         central_html = central_html.replace('/api/method/sigzenbi_central.www.plans.plans.submit_inquiry', '/api/method/sigzenbi_client.www.proxy.submit_inquiry')
+
+        # ...and the seat-configurator price quote. Missing this was why every price on
+        # this page rendered as NaN: the mirrored JS called a CENTRAL dotted path against
+        # the CLIENT domain, which 417s. Every other mirrored endpoint already had a
+        # rewrite; this was the only one that did not.
+        central_html = central_html.replace('/api/method/sigzenbi_central.API.billing.quote.quote_subscription', '/api/method/sigzenbi_client.www.proxy.quote_subscription')
         
         # Inject CSRF token to inquiry form fetch headers to resolve 400 Bad Request
         central_html = central_html.replace(
@@ -96,74 +102,13 @@ def get_context(context):
         from sigzenbi_client.utils import rewrite_plans_link
         central_html = rewrite_plans_link(central_html)
 
-        # Inject JavaScript to dynamically override the static hardcoded plans container in the browser
-        js_script = """
-  <script>
-  document.addEventListener("DOMContentLoaded", function() {
-      const plans = {{ subscription_plans_json | safe }};
-      const isLoggedIn = {{ 'true' if is_logged_in else 'false' }};
-      const currentPlanName = {{ current_plan_name_json | safe }};
-      if (plans && plans.length > 0) {
-          const container = document.querySelector('.plans-container');
-          if (container) {
-              container.innerHTML = '';
-              plans.forEach(plan => {
-                  const isPopular = plan.name.toLowerCase() === 'pqr';
-                  const isCurrent = isLoggedIn && currentPlanName &&
-                      plan.name.toLowerCase() === currentPlanName.toLowerCase();
-                  const planCard = document.createElement('div');
-                  planCard.className = `plan-card ${isPopular ? 'popular' : ''}`;
-
-                  let badgeHtml = '';
-                  if (isCurrent) {
-                      badgeHtml = '<div class="popular-badge" style="background:#10b981;">Current Plan</div>';
-                  } else if (isPopular) {
-                      badgeHtml = '<div class="popular-badge">Most Popular</div>';
-                  }
-
-                  // 2026-07-10: 0 users means unlimited, not literally "Up to 0 users".
-                  const usersLabel = Number(plan.custom_no_of_users) === 0
-                      ? 'Unlimited users'
-                      : `Up to ${plan.custom_no_of_users} user${plan.custom_no_of_users !== 1 ? 's' : ''}`;
-
-                  // 2026-07-11: carry the CHOSEN plan. Sending a logged-in viewer to a bare
-                  // /client_billing was a dead end -- that page's "Upgrade plan" button links
-                  // back here, so the CTA just looped and no order was ever created. Billing now
-                  // opens Razorpay checkout for ?plan=<name> (Central validates it, owner-only).
-                  // The current plan stays a no-op link; a free plan has no checkout to open.
-                  const isFree = Number(plan.cost) === 0;
-                  const ctaHref = isLoggedIn
-                      ? (isCurrent || isFree
-                          ? '/client_billing'
-                          : `/client_billing?plan=${encodeURIComponent(plan.name)}`)
-                      : `/portal/signup?plan=${plan.name.toLowerCase().replace(/ /g, '_')}`;
-                  const ctaLabel = isCurrent ? 'Current Plan' : 'Select This Plan';
-
-                  planCard.innerHTML = `
-                      ${badgeHtml}
-                      <h3>${plan.name}</h3>
-                      <div class="price-box">
-                          <div class="price"><span class="currency">₹</span>${plan.cost}</div>
-                          <div class="interval">per ${plan.billing_interval.toLowerCase()}</div>
-                      </div>
-                      <ul>
-                          <li><i class="fas fa-check-circle"></i> ${usersLabel}</li>
-                          <li><i class="fas fa-check-circle"></i> ${plan.price_determination} Pricing</li>
-                          <li><i class="fas fa-check-circle"></i> All Premium Dashboards</li>
-                          <li><i class="fas fa-check-circle"></i> ERPNext Integration</li>
-                          <li><i class="fas fa-check-circle"></i> 24/7 Priority Support</li>
-                          <li><i class="fas fa-check-circle"></i> Secure Cloud Hosting</li>
-                      </ul>
-                      <a href="${ctaHref}" class="button">${ctaLabel}</a>
-                  `;
-                  container.appendChild(planCard);
-              });
-          }
-      }
-  });
-  </script>
-  """
-        central_html += js_script
+        # REMOVED 2026-08-02: ~70 lines of injected JS that emptied `.plans-container`
+        # and rebuilt it as legacy plan cards from send_subscription_plan -- plan.cost,
+        # custom_no_of_users, price_determination, and `isPopular = name === 'pqr'`. That
+        # is the plan-picker UI the two-product configurator replaced, built from fields
+        # the plan doctype no longer has. It was already inert (no element carries that
+        # class any more, only a CSS rule does), but it would have wiped the configurator
+        # the moment one did.
 
         # Pre-render the central HTML template with context so Jinja tags are executed
         try:

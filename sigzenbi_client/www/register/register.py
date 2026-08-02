@@ -38,48 +38,33 @@ def render_signup(context):
         base_url += '/'
     context.central_url = base_url
 
-    # Dynamic prefill matching logic for any custom plan
-    matched_entity_type = ""
-    selected_plan = frappe.form_dict.get("plan")
-    if selected_plan and base_url:
-        try:
-            # Fetch plans list from central
-            plans_url = f"{base_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
-            plans_res = requests.post(plans_url, timeout=10)
-            plans_data = plans_res.json()
-            if plans_data.get("message", {}).get("status") == "success":
-                plans_list = plans_data["message"].get("subscription_plan", [])
-                
-                # Normalize selected plan name (e.g. "partnership_firm" -> "partnership firm")
-                norm_selected = selected_plan.lower().replace("_", " ").strip()
-                
-                # Find matching plan doc
-                matched_plan = None
-                for plan in plans_list:
-                    plan_name = plan.get("name", "").lower().strip()
-                    if plan_name == norm_selected or plan_name.replace(" ", "_") == norm_selected:
-                        matched_plan = plan
-                        break
-                
-                if matched_plan:
-                    plan_name_lower = matched_plan.get("name", "").lower()
-                    custom_no_of_users = matched_plan.get("custom_no_of_users") or 0
-                    
-                    partnership_kws = ["partnership", "partner", "joint", "associate", "associates", "llp", "collab", "firm"]
-                    company_kws = ["company", "enterprise", "corporate", "corporation", "business", "organization", "group", "team", "ltd", "inc", "agency", "commercial", "unlimited", "suite", "co", "elite", "platinum", "gold", "growth", "multi", "sme", "smb", "startup"]
-                    
-                    if custom_no_of_users > 1:
-                        if any(kw in plan_name_lower for kw in partnership_kws):
-                            matched_entity_type = "Partnership"
-                        else:
-                            matched_entity_type = "Company"
-                    else:
-                        if any(kw in plan_name_lower for kw in company_kws):
-                            matched_entity_type = "Company"
-                        else:
-                            matched_entity_type = "Individual"
-        except Exception as e:
-            frappe.log_error(title="register_prefill_matching_error", message=f"Prefill matching failed: {e}")
+    # The ~45 lines that stood here fetched the whole plan catalogue from Central on every
+    # render, just to guess an "Entity Type" from a plan name via keyword lists. The Entity
+    # Type field is gone (it fed Customer.customer_type, which no BI code reads) and the
+    # plan-picker it came from was retired by the trial-first signup. Removing it also
+    # removes a synchronous cross-server HTTP call from the page load.
+
+    # Prefill what this site already knows. The signup form runs ON the customer's own
+    # ERPNext: the organisation name is its default Company, and when the visitor is signed
+    # in, their name and email are on their User record. Asking them to retype all of it was
+    # not just friction -- typing a DIFFERENT organisation name silently creates a BI tenant
+    # whose identity does not match the ERPNext it is reporting on. Every value stays
+    # editable, and a signed-out visitor simply gets empty fields as before.
+    # Global Defaults directly, NOT frappe.defaults.get_global_default("company"): despite
+    # the name that helper resolves USER-scoped defaults first and returns nothing for a
+    # signed-out visitor, which is precisely who is looking at this form. Falls back to the
+    # only Company on the site when the default is unset.
+    companies = frappe.get_all("Company", limit=2, pluck="name")
+    context.prefill_org = (frappe.db.get_single_value("Global Defaults", "default_company")
+                           or (companies[0] if len(companies) == 1 else "") or "")
+    context.prefill_first_name = context.prefill_last_name = context.prefill_email = ""
+    visitor = frappe.session.user
+    if visitor and visitor not in ("Guest", "Administrator"):
+        user = frappe.db.get_value(
+            "User", visitor, ["first_name", "last_name", "email"], as_dict=True) or {}
+        context.prefill_first_name = user.get("first_name") or ""
+        context.prefill_last_name = user.get("last_name") or ""
+        context.prefill_email = user.get("email") or visitor
 
     context.csrf_token = frappe.sessions.get_csrf_token()
 
@@ -125,18 +110,6 @@ def render_signup(context):
                 "'/api/method/sigzenbi_central.API.fetch_client_subscription.fetch_client_subscription'",
                 "'{{ api_fetch_subscription_url }}'"
             )
-            # Expand keyword matching for auto-selecting Entity Type
-            central_html = central_html.replace(
-                "const companyKeywords = ['company',",
-                "const companyKeywords = ['sme', 'smb', 'startup', 'company',"
-            )
-            # Inject server-side resolved matched entity type
-            if matched_entity_type:
-                central_html = central_html.replace(
-                    'let matched = "";',
-                    f'let matched = "{matched_entity_type}";'
-                )
-
         from sigzenbi_client.utils import rewrite_plans_link
         central_html = rewrite_plans_link(central_html)
 
@@ -264,22 +237,16 @@ def get_client_credentials(**kwargs):
                 from sigzenbi_client import credentials as client_credentials
                 client_credentials.upsert_root(client_name, api_key, api_secret, "registration")
 
-            # Automatically log in the user on the central server to establish a session
-            try:
-                login_url = f"{base_url}api/method/login"
-                login_res = requests.post(login_url, json={"usr": kwargs.get("email"), "pwd": kwargs.get("password")}, timeout=10)
-                if login_res.status_code == 200:
-                    # Extract the non-Guest sid cookie
-                    central_sid = None
-                    for cookie in login_res.cookies:
-                        if cookie.name == "sid" and cookie.value != "Guest":
-                            central_sid = cookie.value
-                            break
-                    if central_sid:
-                        frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax", secure=True)
-                        frappe.local.cookie_manager.set_cookie("client_session_user", kwargs.get("email"), httponly=True, samesite="Lax", secure=True)
-            except Exception as login_e:
-                frappe.log_error(title="auto_login_error", message=str(login_e))
+            # Establish the Central session from the sid Central returned with the
+            # registration it just performed. This replaced a second POST /api/method/login
+            # that re-sent the user's password -- the only thing that password was ever
+            # used for after signup, and the reason the form demanded one. Central returns
+            # the sid ONLY when it actually created the user, never on the
+            # already-registered branch, so this cannot be used to adopt someone's account.
+            central_sid = parsed.get("sid")
+            if central_sid and central_sid != "Guest":
+                frappe.local.cookie_manager.set_cookie("central_sid", central_sid, httponly=True, samesite="Lax", secure=True)
+                frappe.local.cookie_manager.set_cookie("client_session_user", kwargs.get("email"), httponly=True, samesite="Lax", secure=True)
             
         return parsed
     except Exception as e:
