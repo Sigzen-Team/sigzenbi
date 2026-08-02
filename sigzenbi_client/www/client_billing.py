@@ -31,6 +31,23 @@ def get_context(context):
     context.subscription_end_date = str(end_date) if end_date else None
 
     base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
+
+    # THE BI TIERS. This page is MIRRORED: Central owns the markup, this site renders it
+    # with THIS context -- so the template's `{% for tier in bi_tiers %}` finds nothing
+    # unless we fetch the list. Without it the tier cards rendered as an empty grid and the
+    # only visible sign was the hint line beneath them, with no error anywhere.
+    context.bi_tiers = []
+    if base_url:
+        _base = base_url if base_url.endswith("/") else base_url + "/"
+        try:
+            _t = requests.get(
+                f"{_base}api/method/sigzenbi_central.API.billing.quote.list_bi_tiers",
+                timeout=10)
+            if _t.ok:
+                context.bi_tiers = _t.json().get("message") or []
+        except Exception:
+            frappe.log_error(title="client_billing: tier fetch failed",
+                             message=frappe.get_traceback())
     if base_url and not base_url.endswith("/"):
         base_url += "/"
 
