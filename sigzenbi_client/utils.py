@@ -524,6 +524,9 @@ _AI_ROUTES = (
 	                 "get_purchase_history", "get_ledger", "get_wallet_balance")),
 	("byok_api", ("save_byok_key", "remove_byok_key", "set_ai_policy",
 	              "get_ai_billing_status")),
+	# P1.11 seat configurator. `quote` is a billing-bucket module, so the existing
+	# bucket-agnostic pattern reaches it without a new mechanism.
+	("quote", ("quote_subscription", "get_rate_card")),
 )
 
 

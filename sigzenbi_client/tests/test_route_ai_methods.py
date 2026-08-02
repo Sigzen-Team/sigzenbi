@@ -76,6 +76,25 @@ class TestRouteAIMethodsToProxy(unittest.TestCase):
 		self.assertNotIn("sigzenbi_central.API.semantic", out)
 		self.assertIn("sigzenbi_central.API.team.invite_user.invite_user", out)
 
+	def test_seat_quote_is_routed(self):
+		"""P1.11: the billing page's live total. If this stays unproxied the browser calls
+		the CENTRAL domain directly -- a cross-origin call from the tenant's own portal,
+		which the root CLAUDE.md rule exists to prevent, and which fails on CORS anyway."""
+		self.assertEqual(
+			route("sigzenbi_central.API.billing.quote.quote_subscription"),
+			"sigzenbi_client.API.ai_proxy.quote_subscription",
+		)
+		self.assertEqual(
+			route("sigzenbi_central.API.billing.quote.get_rate_card"),
+			"sigzenbi_client.API.ai_proxy.get_rate_card",
+		)
+
+	def test_seat_upgrade_keeps_its_own_www_rewrite(self):
+		"""upgrade_subscription is a www method, not an API-bucket one: client_billing.py's
+		explicit map handles it. This helper must leave it alone, or both rewrites fire."""
+		path = "sigzenbi_central.www.client_dashboard.upgrade_subscription"
+		self.assertEqual(route(path), path)
+
 	def test_empty_input(self):
 		self.assertEqual(route(""), "")
 		self.assertIsNone(route(None))

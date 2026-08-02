@@ -250,6 +250,31 @@ def get_available_packs():
 
 
 @central_authed
+def quote_subscription(plan=None, analysts=0, viewers=0, ai_licences=0,
+                       interval="Month", currency="INR"):
+	"""Proxy the seat configurator's live price (P1.11).
+
+	Read-only: quoting creates nothing and charges nothing. It exists so the billing page
+	can show a running total WITHOUT doing any arithmetic of its own -- Central prices it
+	with the same price_subscription() that checkout charges through, so the number the
+	owner reads is the number the gateway takes.
+
+	sid-forwarded like every other portal proxy. Central's endpoint is allow_guest and
+	returns only rate-card pricing, but forwarding the sid keeps one auth story across this
+	module rather than a second, weaker one for "it is only a read".
+
+	Quantities pass through untouched: Central validates them at its own trust boundary
+	(_validated_qty) and returns {"error": ...} for anything it will not price. Re-checking
+	here would be a second opinion about what a valid quantity is, and the two would drift.
+	"""
+	from sigzenbi_client.API.team_proxy import _forward
+	return _forward("sigzenbi_central.API.billing.quote.quote_subscription", {
+		"plan": plan, "analysts": analysts, "viewers": viewers,
+		"ai_licences": ai_licences, "interval": interval, "currency": currency,
+	})
+
+
+@central_authed
 def initiate_razorpay_purchase(pack_name):
 	"""Create a Razorpay order for a credit pack.
 

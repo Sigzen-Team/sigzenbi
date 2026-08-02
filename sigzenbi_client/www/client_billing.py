@@ -80,6 +80,27 @@ def get_context(context):
     context.packs = []
     context.purchase_history = []
 
+    # Seat configurator prefill (P1.11). The client box does not hold the subscription --
+    # Central does -- so the current configuration is read through the SAME credentialed
+    # endpoint the paywall already uses. Defaults are the FLOOR, not zero: a tenant whose
+    # row predates the seat model still has an analyst and two viewers, and starting the
+    # steppers at zero would invite them to "upgrade" to less than they hold.
+    context.current_analyst_seats = 1
+    context.current_viewer_seats = 2
+    context.current_ai_licences = 0
+    context.current_billing_interval = "Month"
+    try:
+        from sigzenbi_client.www.client_dashboard import _fetch_subscription_state
+        state = _fetch_subscription_state(client_user) or {}
+        # An older Central returns none of these keys; `or` keeps the floor defaults rather
+        # than writing zeros the owner would then be shown as their current plan.
+        context.current_analyst_seats = int(state.get("analyst_seats") or 0) or 1
+        context.current_viewer_seats = int(state.get("viewer_seats") or 0) or 2
+        context.current_ai_licences = int(state.get("ai_licences") or 0)
+        context.current_billing_interval = state.get("billing_interval") or "Month"
+    except Exception:
+        frappe.log_error(title="client_billing", message="seat prefill failed; showing floor defaults")
+
     central_html = ""
     if base_url:
         try:

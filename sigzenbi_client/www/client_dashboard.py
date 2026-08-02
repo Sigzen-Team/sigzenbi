@@ -83,17 +83,26 @@ def renew_subscription():
 
 
 @frappe.whitelist(allow_guest=True)
-def upgrade_subscription(plan=None):
+def upgrade_subscription(plan=None, analysts=0, viewers=0, ai_licences=0,
+                        interval="Month", currency="INR"):
     """Sid-forwarded proxy for Central's `client_dashboard.upgrade_subscription` (2026-07-11).
 
     Same sid-only rule as renew_subscription above: NEVER utils.call_central_api, whose
     tenant-API-key auth would authenticate every caller as the org owner. Central re-derives
     the tenant from the forwarded session and enforces owner-only, and validates `plan`
-    against the catalog -- we pass it straight through without trusting it."""
+    against the catalog -- we pass it straight through without trusting it.
+
+    Carries the configurator's seat quantities (P1.11). They are forwarded raw for the same
+    reason `plan` is: Central validates them at its trust boundary and RECOMPUTES the amount
+    from them. This proxy never sees or sends a price, so there is nothing here to forge.
+    Note there is deliberately no equivalent on renew_subscription -- a renewal bills the
+    STORED configuration, and accepting quantities there would turn a renewal into an
+    unpriced plan change."""
     from sigzenbi_client.API.team_proxy import _forward
     return _forward(
         "sigzenbi_central.www.client_dashboard.upgrade_subscription",
-        {"plan": plan},
+        {"plan": plan, "analysts": analysts, "viewers": viewers,
+         "ai_licences": ai_licences, "interval": interval, "currency": currency},
     )
 
 
