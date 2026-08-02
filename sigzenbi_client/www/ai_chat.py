@@ -51,15 +51,12 @@ def render_chat(context, kind):
 		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
 		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
 		# than a zero.
-		context.credit_balance = wallet.get(kind, wallet.get("balance", 0))
-		context.credit_label = PURSE_LABELS[kind]
+		context.credit_balance = wallet.get("interactive", wallet.get("balance", 0))
+		context.credit_label = "Chat credits"
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
-		# that way turns a licence denial or a Central blip into a false money message.
-		# None lets the template omit the figure entirely.
-		context.credit_balance = None
-		context.credit_label = None
+		context.credit_balance = 0
+		context.credit_label = "Chat credits"
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''

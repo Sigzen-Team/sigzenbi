@@ -36,10 +36,15 @@ def get_context(context):
 		from sigzenbi_client.API.ai_proxy import get_wallet_balance, get_suggested_questions
 
 		wallet = get_wallet_balance() or {}
-		context.credit_balance = wallet.get("balance", 0)
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		context.credit_balance = wallet.get("build", wallet.get("balance", 0))
+		context.credit_label = "Build credits"
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
 		context.credit_balance = 0
+		context.credit_label = "Build credits"
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
