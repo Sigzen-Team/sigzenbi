@@ -1,9 +1,13 @@
-"""/client_plans (Task 10, 2026-07-10): unlimited-users rendering, current-plan
-marker, and the logged-in CTA fix (a logged-in viewer must not be routed through
-/portal/signup, which bounces them back to the dashboard). Verified by (a)
-exercising get_context's context wiring and (b) source-inspecting the injected
-plan-card JS for the render logic itself -- browser JS isn't unit-testable from
-Python, but the string it's built from is."""
+"""/client_plans: context wiring for the logged-in CTA fix (a logged-in viewer must
+not be routed through /portal/signup, which bounces them back to the dashboard).
+
+A second class here used to source-inspect the injected plan-card JS for
+"Unlimited users" / "Number(plan.custom_no_of_users) === 0" / the "Current Plan"
+marker. That JS was deleted on 2026-08-02 with the plan-picker it drew, and
+`custom_no_of_users` left the Central wire format on the same day -- it aliased the
+deleted SigzenBI Plan.seat_cap and published 0 for every plan, which the card JS
+then rendered as "Unlimited users". Asserting on a string in a comment is not a
+test, so the class is gone; what remains is the regression guard below."""
 import inspect
 import unittest
 from unittest.mock import patch
@@ -47,20 +51,12 @@ class TestClientPlansContext(unittest.TestCase):
             "sigzenbi_central.API.send_subscription_plan.send_subscription_plan", src)
 
 
-class TestClientPlansCardRenderJS(unittest.TestCase):
-    def setUp(self):
-        self.src = inspect.getsource(client_plans.get_context)
+class TestTheRetiredPlanCardJSStaysRetired(unittest.TestCase):
+    """The removed card JS read a wire key Central no longer sends. If it comes back
+    it must not come back reading `custom_no_of_users`, which would render every plan
+    as "Unlimited users" off a key that is simply absent."""
 
-    def test_zero_users_renders_unlimited(self):
-        self.assertIn("Unlimited users", self.src)
-        self.assertIn("Number(plan.custom_no_of_users) === 0", self.src)
-
-    def test_current_plan_marker_present(self):
-        self.assertIn("isCurrent", self.src)
-        self.assertIn("Current Plan", self.src)
-
-    def test_logged_in_cta_routes_to_client_billing_not_signup(self):
-        self.assertIn("isLoggedIn", self.src)
-        self.assertIn("/client_billing", self.src)
-        # anonymous visitors still get the old (working) signup-with-plan link
-        self.assertIn("/portal/signup?plan=", self.src)
+    def test_no_read_of_the_removed_wire_key(self):
+        src = inspect.getsource(client_plans)
+        self.assertNotIn("plan.custom_no_of_users", src)
+        self.assertNotIn("Unlimited users", src)
