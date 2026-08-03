@@ -12,6 +12,10 @@ no_cache = 1
 PURSE_LABELS = {"interactive": "Chat credits", "build": "Build credits"}
 
 
+# purse key on the wallet -> the label this page shows for it
+PURSES = {"interactive": ("interactive", "Chat credits"), "build": ("build", "Build credits")}
+
+
 def get_context(context):
 	# /ai_chat IS the interactive product (SigzenAI). /bi_chat passes kind="build".
 	return render_chat(context, "interactive")
@@ -51,12 +55,19 @@ def render_chat(context, kind):
 		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
 		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
 		# than a zero.
-		context.credit_balance = wallet.get("interactive", wallet.get("balance", 0))
-		context.credit_label = "Chat credits"
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		purse, label = PURSES[kind]
+		context.credit_balance = wallet.get(purse, wallet.get("balance", 0))
+		context.credit_label = label
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		context.credit_balance = 0
-		context.credit_label = "Chat credits"
+		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
+		# that way turns a licence denial or a Central blip into a false money message.
+		# None lets the template omit the figure entirely.
+		context.credit_balance = None
+		context.credit_label = None
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''

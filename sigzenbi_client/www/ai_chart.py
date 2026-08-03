@@ -39,8 +39,9 @@ def get_context(context):
 		context.credit_label = "Chat credits"
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		context.credit_balance = 0
-		context.credit_label = "Chat credits"
+		# NOT zero -- see ai_chat.render_chat. A failed fetch is not "out of credits".
+		context.credit_balance = None
+		context.credit_label = None
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
