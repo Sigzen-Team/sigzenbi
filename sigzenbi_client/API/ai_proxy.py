@@ -487,6 +487,34 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 	)
 
 
+# The chat endpoint IS the product boundary, so each product needs its own proxy:
+# send_build_message asserts an analyst seat, send_interactive_message asserts a SigzenAI
+# licence. Central split them and retired `send_message`'s client-side `mode` parameter --
+# without these two, /bi_chat and /ai_chat both resolve to a proxy method that does not
+# exist and every send fails.
+def _send(central_method, message, chat_id):
+	chat_user = _proxy_auth()
+	if not message or not str(message).strip():
+		frappe.throw(_("Message cannot be empty."))
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user, "message": str(message).strip()}
+	if chat_id:
+		payload["chat_id"] = chat_id
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{central_method}",
+		payload=payload, method="POST", timeout=180,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def send_build_message(message=None, chat_id=None, client_name=None, **kwargs):
+	return _send("send_build_message", message, chat_id)
+
+
+@frappe.whitelist(allow_guest=True)
+def send_interactive_message(message=None, chat_id=None, client_name=None, **kwargs):
+	return _send("send_interactive_message", message, chat_id)
+
+
 @frappe.whitelist(allow_guest=True)
 def list_chats(client_name=None, limit=50, **kwargs):
 	chat_user = _proxy_auth()

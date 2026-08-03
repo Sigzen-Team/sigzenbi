@@ -5,6 +5,18 @@ from urllib.parse import unquote
 
 
 def get_context(context):
+	# /ai_chat IS the interactive product (SigzenAI). /bi_chat passes kind="build".
+	return render_chat(context, "interactive")
+
+
+def render_chat(context, kind):
+	"""Render the Central-authored chat frame for ONE product.
+
+	`kind` tells Central which product this page is: "build" (SigzenBI dashboard and chart
+	building -- spends the build purse, needs an analyst seat) or "interactive" (SigzenAI
+	conversation -- spends the interactive purse, needs an AI licence). Central re-derives
+	the entitlement server-side, so a forged kind changes appearance, never access.
+	"""
 	context.no_cache = 1
 	context.show_sidebar = False
 
@@ -56,7 +68,7 @@ def get_context(context):
 				from sigzenbi_client.utils import call_central_api
 				central_html = call_central_api(
 					url,
-					payload={"client": client_name, "chat_user": client_user},
+					payload={"client": client_name, "chat_user": client_user, "kind": kind},
 					method="GET",
 					timeout=10
 				)
@@ -68,18 +80,18 @@ def get_context(context):
 				guest_headers = {"Content-Type": "application/json"}
 				response = requests.get(
 					url,
-					params={"client": client_name, "chat_user": client_user},
+					params={"client": client_name, "chat_user": client_user, "kind": kind},
 					headers=guest_headers,
 					timeout=10
 				)
 				if response.status_code == 200:
 					central_html = response.json().get("message")
 		except Exception as e:
-			frappe.log_error(title="ai_chat", message=f"Error fetching central ai_chat_frame.html: {e}")
+			frappe.log_error(title=f"{kind} chat", message=f"Error fetching central ai_chat_frame.html: {e}")
 
 	if not central_html:
 		from sigzenbi_client.utils import guided_fallback
-		context.html_content = guided_fallback("The AI Chat builder", bool(base_url))
+		context.html_content = guided_fallback("The Build chat" if kind == "build" else "The AI Chat", bool(base_url))
 	else:
 		# Rewrite asset URLs to point to central server
 		if base_url:
