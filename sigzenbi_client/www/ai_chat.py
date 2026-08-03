@@ -3,9 +3,13 @@ import frappe.sessions
 import requests
 from urllib.parse import unquote
 
+# Per-user CSRF token and balance render into this page -- never serve it from the
+# shared page cache, which keys on path + language and NOT on user.
+no_cache = 1
 
-# purse key on the wallet -> the label this page shows for it
-PURSES = {"interactive": ("interactive", "Chat credits"), "build": ("build", "Build credits")}
+
+# `kind` IS the wallet purse key; this only names it for the user.
+PURSE_LABELS = {"interactive": "Chat credits", "build": "Build credits"}
 
 
 def get_context(context):
@@ -47,12 +51,8 @@ def render_chat(context, kind):
 		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
 		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
 		# than a zero.
-		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
-		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
-		# than a zero.
-		purse, label = PURSES[kind]
-		context.credit_balance = wallet.get(purse, wallet.get("balance", 0))
-		context.credit_label = label
+		context.credit_balance = wallet.get(kind, wallet.get("balance", 0))
+		context.credit_label = PURSE_LABELS[kind]
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
 		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it

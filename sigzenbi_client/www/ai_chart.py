@@ -3,6 +3,10 @@ import frappe.sessions
 import requests
 from urllib.parse import unquote
 
+# Per-user CSRF token and balance render into this page -- never serve it from the
+# shared page cache, which keys on path + language and NOT on user.
+no_cache = 1
+
 
 def get_context(context):
 	context.no_cache = 1
