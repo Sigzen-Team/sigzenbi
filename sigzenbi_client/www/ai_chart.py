@@ -31,7 +31,11 @@ def get_context(context):
 		context.credit_balance = wallet.get("balance", 0)
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		context.credit_balance = 0
+		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
+		# that way turns a licence denial or a Central blip into a false money message.
+		# None lets the template omit the figure entirely.
+		context.credit_balance = None
+		context.credit_label = None
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
