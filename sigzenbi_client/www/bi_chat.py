@@ -13,5 +13,8 @@ def get_context(context):
 	Splitting the URL is what lets Central deny one without denying the other -- before
 	this page existed, "Build with AI" pointed at the interactive frame and handed a 403
 	to every analyst without a SigzenAI licence.
+
+	This used to be a copy-pasted duplicate of ai_chat.py on one box and absent on
+	another; the two drifted and only one of them ever passed kind= to Central.
 	"""
 	return render_chat(context, "build")

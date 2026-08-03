@@ -28,12 +28,14 @@ def get_context(context):
 		from sigzenbi_client.API.ai_proxy import get_wallet_balance, get_suggested_questions
 
 		wallet = get_wallet_balance() or {}
-		context.credit_balance = wallet.get("balance", 0)
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		context.credit_balance = wallet.get("interactive", wallet.get("balance", 0))
+		context.credit_label = "Chat credits"
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
-		# that way turns a licence denial or a Central blip into a false money message.
-		# None lets the template omit the figure entirely.
+		# NOT zero -- see ai_chat.render_chat. A failed fetch is not "out of credits".
 		context.credit_balance = None
 		context.credit_label = None
 		context.suggestions = []

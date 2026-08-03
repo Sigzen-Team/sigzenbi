@@ -4,6 +4,10 @@ import requests
 from urllib.parse import unquote
 
 
+# purse key on the wallet -> the label this page shows for it
+PURSES = {"interactive": ("interactive", "Chat credits"), "build": ("build", "Build credits")}
+
+
 def get_context(context):
 	# /ai_chat IS the interactive product (SigzenAI). /bi_chat passes kind="build".
 	return render_chat(context, "interactive")
@@ -40,7 +44,15 @@ def render_chat(context, kind):
 		from sigzenbi_client.API.ai_proxy import get_wallet_balance, get_suggested_questions
 
 		wallet = get_wallet_balance() or {}
-		context.credit_balance = wallet.get("balance", 0)
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		purse, label = PURSES[kind]
+		context.credit_balance = wallet.get(purse, wallet.get("balance", 0))
+		context.credit_label = label
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
 		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
