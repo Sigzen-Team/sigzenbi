@@ -2,6 +2,12 @@ import frappe
 import frappe.sessions
 import requests
 
+# NEVER CACHE THIS PAGE. Frappe caches rendered www pages on path+language only --
+# no user -- so a cached copy is served to EVERYONE. This page renders a per-session csrf_token and redirects on the tenant's subscription status.
+# Module level, not context.no_cache: the renderer reads it off the module, so it
+# still applies on a path that returns or redirects early.
+no_cache = True
+
 def get_context(context):
     # Ensure client has activated the plan
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')

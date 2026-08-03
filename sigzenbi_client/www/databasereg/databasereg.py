@@ -5,6 +5,11 @@ import requests
 import json
 import re
 
+# NEVER CACHE THIS PAGE. Frappe caches rendered www pages on path+language only --
+# no user -- so a cached copy is served to EVERYONE. This page renders a per-session csrf_token into the database-registration form.
+# Module level, not context.no_cache: the renderer reads it off the module, so it
+# still applies on a path that returns or redirects early.
+no_cache = True
 
 def _get_client_site_db_config():
 	"""Database credentials from this client bench site (sites/<site>/site_config.json)."""
@@ -33,6 +38,25 @@ def _inject_client_db_fields(html):
 			count=1,
 			flags=re.IGNORECASE | re.DOTALL,
 		)
+	# READONLY (2026-08-02). Every one of these is read from THIS site's own
+	# site_config.json just above -- there is exactly one correct answer and the page
+	# already knows it. Leaving them editable offered the buyer no capability (the gateway
+	# executes against frappe.conf, never these values -- see API/gateway/local_db.py) while
+	# letting a typo, or a paste, overwrite the tenant's stored connection record.
+	#
+	# This is the COSMETIC half of the fix. `readonly` is a DOM attribute: it can be removed
+	# in devtools, and the endpoint can be POSTed directly. The half that actually holds is
+	# in get_database_credentials below, which re-derives these server-side and ignores
+	# whatever the browser sent.
+	for _field in ("db_host", "db_name", "db_user", "db_password", "client_name"):
+		html = re.sub(
+			rf'(<input(?![^>]*\breadonly\b)[^>]*name="{_field}")',
+			r'\1 readonly',
+			html,
+			count=1,
+			flags=re.IGNORECASE | re.DOTALL,
+		)
+
 	# C5: a non-technical buyer must never see their DB password in plaintext. Force the
 	# db_password input to type="password" (masked); the value stays auto-filled/submittable.
 	def _mask_pw(m):
@@ -220,7 +244,25 @@ def get_database_credentials(**kwargs):
         client_url, client_port = get_client_url_and_port()
         kwargs["client_url"] = client_url
         kwargs["client_site_port"] = client_port
-        
+
+        # SERVER-AUTHORITATIVE DB CREDENTIALS (2026-08-02). This proxy used to forward the
+        # browser's db_host/db_name/db_user/db_password verbatim to Central, where they
+        # become the tenant's stored Client Database Credential and the Superset database
+        # object built from it. That made a form field a write path into the tenant's
+        # connection record -- for values the browser has no business choosing:
+        #
+        #   * there is exactly one correct answer, this site's own site_config.json, which
+        #     the page already reads to prefill the form;
+        #   * nothing ever connects with what was submitted anyway -- the gateway executes
+        #     against frappe.conf (API/gateway/local_db.py), so a changed value could not
+        #     grant access to a different database, only corrupt the stored record;
+        #   * the password field is already masked on the grounds that a non-technical
+        #     buyer should not SEE it, which sits badly with letting them overwrite it.
+        #
+        # Same shape as client_url/client_site_port immediately above: the client site is
+        # the source of truth for facts about the client site.
+        kwargs.update(_get_client_site_db_config())
+
         url = f"{base_url}api/method/sigzenbi_central.API.fetch_database_credentials.get_database_credentials"
         from sigzenbi_client.utils import call_central_api
         parsed = call_central_api(url, payload=kwargs, method="POST", timeout=20, client_name=kwargs.get("client_name"))

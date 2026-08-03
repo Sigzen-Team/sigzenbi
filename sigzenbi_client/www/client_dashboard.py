@@ -66,6 +66,45 @@ def _vouch_for_logged_in_user(visitor):
     return sid, visitor
 
 
+def central_get_with_sid(url, sid, timeout=10):
+	"""GET Central carrying the BI session, RE-VOUCHING ONCE if that session is gone.
+
+	A `central_sid` cookie outlives the Central session it points at. Central restarts,
+	session expiry and an explicit logout all invalidate the session while the cookie sits
+	in the browser looking perfectly good -- and resolve_bi_user hands it straight back,
+	because it only compares the cookie's user to the ERP user and never asks Central
+	whether the session is still alive.
+
+	Every caller then reads the 403 as a plain "no". That is how a tenant owner lost the
+	Team and Billing links from their sidebar (2026-08-02): can_manage_superset_login
+	answered `session_expired`, the flag defaulted to 0, and the admin nav was dropped with
+	nothing logged anywhere. The user was fully signed in the whole time.
+
+	Returns the response, or None if even the retry could not be made. Never raises: this
+	is a cosmetic gate on a page that must still render.
+	"""
+	import requests as _rq
+
+	try:
+		res = _rq.get(url, cookies={"sid": sid}, timeout=timeout)
+	except Exception:
+		return None
+	if res.status_code not in (401, 403):
+		return res
+
+	# Stale session: mint a fresh one for the ERP user actually signed in here, then retry.
+	visitor = getattr(frappe.session, "user", None)
+	if not visitor or visitor == "Guest":
+		return res
+	try:
+		new_sid, new_user = _vouch_for_logged_in_user(visitor)
+		if not new_sid:
+			return res
+		return _rq.get(url, cookies={"sid": new_sid}, timeout=timeout)
+	except Exception:
+		return res
+
+
 @frappe.whitelist(allow_guest=True)
 def renew_subscription():
     """Sid-forwarded proxy for Central's `client_dashboard.renew_subscription`
@@ -208,14 +247,11 @@ def get_context(context):
     # Cosmetic only (the endpoints are self-safe); fail-closed to 0.
     context.can_manage_superset_login = 0
     if base_url and central_sid:
-        try:
-            _g = requests.get(
-                f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials.can_manage_superset_login",
-                cookies={"sid": central_sid}, timeout=10)
-            if _g.ok:
-                context.can_manage_superset_login = (_g.json().get("message") or {}).get("can_manage", 0)
-        except Exception:
-            pass
+        _url = (f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials"
+                f".can_manage_superset_login")
+        _r = central_get_with_sid(_url, central_sid)
+        if _r is not None and _r.ok:
+            context.can_manage_superset_login = (_r.json().get("message") or {}).get("can_manage", 0)
 
     # Pass proxy endpoints to pre-rendered HTML
     context.api_get_superset_token_url = "sigzenbi_client.API.dashboard_api.get_superset_token"

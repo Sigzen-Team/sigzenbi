@@ -102,10 +102,15 @@ def list_team():
 
 
 @frappe.whitelist(allow_guest=True)
-def invite_user(email, full_name):
+def invite_user(email, full_name, seat_type="Viewer", ai_licensed=0):
     # Never forward app_role — Central rejects non-Member anyway; don't offer the knob.
+    # seat_type/ai_licensed ARE forwarded: they are what makes an invited member a COUNTED
+    # seat instead of the free, uncounted NULL row Central used to write. Defaulted here as
+    # well as on Central, so an older cached team page that omits them still yields a Viewer
+    # rather than a TypeError.
     return _forward("sigzenbi_central.API.team.invite_user.invite_user",
-                    {"email": email, "full_name": full_name})
+                    {"email": email, "full_name": full_name,
+                     "seat_type": seat_type, "ai_licensed": ai_licensed})
 
 
 @frappe.whitelist(allow_guest=True)
@@ -124,6 +129,21 @@ def assign_dashboard(user, dashboard, assigned=1, permission_level=None):
 @frappe.whitelist(allow_guest=True)
 def set_ai_chat(user, enabled):
     return _forward("sigzenbi_central.API.team.set_ai_chat.set_ai_chat",
+                    {"user": user, "enabled": enabled})
+
+
+@frappe.whitelist(allow_guest=True)
+def set_seat_type(user, seat_type):
+    # The PRICED seat change. Central cap-checks it, refuses to demote the owner, and
+    # downgrades that member's Edit grants on demotion — we forward only, as everywhere here.
+    return _forward("sigzenbi_central.API.team.set_seat_type.set_seat_type",
+                    {"user": user, "seat_type": seat_type})
+
+
+@frappe.whitelist(allow_guest=True)
+def set_team_admin(user, enabled):
+    # The FREE team-admin flag. Central refuses to remove the last admin, or your own.
+    return _forward("sigzenbi_central.API.team.set_seat_type.set_team_admin",
                     {"user": user, "enabled": enabled})
 
 

@@ -303,13 +303,23 @@ def get_purchase_history(limit=20):
 
 
 @central_authed
-def get_ledger(limit=50):
+def get_ledger(limit=50, offset=0, types=None, allowance=None, **kwargs):
 	"""Proxy AI credit ledger fetch to Central. sid-forwarded (2026-07-10 security
-	fix) -- see initiate_razorpay_purchase for why."""
+	fix) -- see initiate_razorpay_purchase for why.
+
+	get_ledger grew offset/types/allowance on Central (the ledger timeline rewrite).
+	This proxy builds an EXPLICIT payload rather than splatting kwargs, so an
+	unforwarded parameter vanishes silently -- the filter would appear to do nothing
+	with no error."""
 	from sigzenbi_client.API.team_proxy import _forward
+	payload = {"client_name": _get_client_name(), "limit": limit, "offset": offset}
+	if types:
+		payload["types"] = types
+	if allowance:
+		payload["allowance"] = allowance
 	return _forward(
 		"sigzenbi_central.API.billing.payment_api.get_ledger",
-		{"client_name": _get_client_name(), "limit": limit},
+		payload,
 	)
 
 
@@ -518,41 +528,67 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 	)
 
 
-# The chat endpoint IS the product boundary, so each product needs its own proxy:
-# send_build_message asserts an analyst seat, send_interactive_message asserts a SigzenAI
-# licence. Central split them and retired `send_message`'s client-side `mode` parameter --
-# without these two, /bi_chat and /ai_chat both resolve to a proxy method that does not
-# exist and every send fails.
-def _send(central_method, message, chat_id):
+def _send_chat(method, message, chat_id):
+	"""Shared forwarder for the two product send paths.
+
+	ONE body, because the only thing that differs is which Central method is called --
+	the licence/seat decision belongs to Central and must not be re-implemented here.
+	The browser supplies neither client_name nor chat_user: both are server-derived,
+	exactly as the legacy send_message does.
+	"""
 	chat_user = _proxy_auth()
 	if not message or not str(message).strip():
 		frappe.throw(_("Message cannot be empty."))
-	payload = {"client_name": _get_client_name(), "chat_user": chat_user, "message": str(message).strip()}
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user,
+			"message": str(message).strip()}
 	if chat_id:
 		payload["chat_id"] = chat_id
 	return _call_central_ai(
-		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{central_method}",
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{method}",
 		payload=payload, method="POST", timeout=180,
 	)
 
 
 @frappe.whitelist(allow_guest=True)
 def send_build_message(message=None, chat_id=None, client_name=None, **kwargs):
-	return _send("send_build_message", message, chat_id)
+	"""BUILD chat -- dashboards and charts. Analyst seat, NO SigzenAI licence."""
+	return _send_chat("send_build_message", message, chat_id)
 
 
 @frappe.whitelist(allow_guest=True)
 def send_interactive_message(message=None, chat_id=None, client_name=None, **kwargs):
-	return _send("send_interactive_message", message, chat_id)
+	"""ASK AI -- conversational analysis. Requires a SigzenAI licence (asserted on Central)."""
+	return _send_chat("send_interactive_message", message, chat_id)
 
 
 @frappe.whitelist(allow_guest=True)
-def list_chats(client_name=None, limit=50, **kwargs):
+def list_chats(client_name=None, limit=25, offset=0, product=None, q=None, **kwargs):
+	"""Forward the history filters. client_name/chat_user stay server-derived; the rest
+	are display parameters Central re-validates and caps."""
 	chat_user = _proxy_auth()
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user,
+	           "limit": limit, "offset": offset}
+	if product:
+		payload["product"] = product
+	if q:
+		payload["q"] = q
 	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.list_chats",
-		payload={"client_name": _get_client_name(), "chat_user": chat_user, "limit": limit},
-		method="GET", timeout=30,
+		payload=payload, method="GET", timeout=30,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def rename_chat(chat_id=None, title=None, client_name=None, **kwargs):
+	"""Let a user name a conversation. Central enforces ownership via _assert_chat_access."""
+	chat_user = _proxy_auth()
+	if not chat_id:
+		frappe.throw(_("chat_id is required."))
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.rename_chat",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user,
+		         "chat_id": chat_id, "title": title},
+		method="POST", timeout=30,
 	)
 
 
