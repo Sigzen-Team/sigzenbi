@@ -357,6 +357,37 @@ def get_ai_billing_status():
 
 
 @central_authed
+def get_shell_state(route=None):
+	"""Proxy the sidebar's nav-lock + purse-chip state to Central (see www/_nav.py there
+	and API/entitlements.get_shell_state).
+
+	The five portal pages fetch their HTML as raw text (client_login.get_team_template &
+	co) and re-render it here with only csrf_token/central_frappe_url in context, so
+	Central's Jinja has_bi_product/has_ai_licence/shell_purse guards were always undefined
+	on this box -- the nav rendered permanently unlocked and the chip never rendered at
+	all. shell.js calls this once after render (client-mirrored pages only -- see
+	data-sg-shell-central in the templates) and applies the real state to the existing DOM
+	in place.
+
+	Fails to the SAME shape nav_flags/shell_purse fail to on Central: both products shown
+	(an outage must never silently strip a paying customer's nav) and no purse chip (a chip
+	beats no chip only when the balance is actually known)."""
+	chat_user = _proxy_auth()
+	base_url = _get_central_base()
+	client_name = _get_client_name()
+
+	try:
+		return _call_central_ai(
+			f"{base_url}api/method/sigzenbi_central.API.entitlements.get_shell_state",
+			payload={"client_name": client_name, "user": chat_user, "route": route or ""},
+			method="GET",
+			timeout=15,
+		)
+	except Exception:
+		return {"has_bi_product": True, "has_ai_licence": True, "shell_purse": {}}
+
+
+@central_authed
 def get_suggested_questions():
 	"""Proxy suggested questions fetch to Central."""
 	chat_user = _proxy_auth()
