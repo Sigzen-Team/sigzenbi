@@ -3,8 +3,28 @@ import frappe.sessions
 import requests
 from urllib.parse import unquote
 
+# Per-user CSRF token and balance render into this page -- never serve it from the
+# shared page cache, which keys on path + language and NOT on user.
+no_cache = 1
+
+
+# `kind` IS the wallet purse key; this only names it for the user.
+PURSE_LABELS = {"interactive": "Chat credits", "build": "Build credits"}
+
 
 def get_context(context):
+	# /ai_chat IS the interactive product (SigzenAI). /bi_chat passes kind="build".
+	return render_chat(context, "interactive")
+
+
+def render_chat(context, kind):
+	"""Render the Central-authored chat frame for ONE product.
+
+	`kind` tells Central which product this page is: "build" (SigzenBI dashboard and chart
+	building -- spends the build purse, needs an analyst seat) or "interactive" (SigzenAI
+	conversation -- spends the interactive purse, needs an AI licence). Central re-derives
+	the entitlement server-side, so a forged kind changes appearance, never access.
+	"""
 	context.no_cache = 1
 	context.show_sidebar = False
 
@@ -28,10 +48,18 @@ def get_context(context):
 		from sigzenbi_client.API.ai_proxy import get_wallet_balance, get_suggested_questions
 
 		wallet = get_wallet_balance() or {}
-		context.credit_balance = wallet.get("balance", 0)
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		context.credit_balance = wallet.get(kind, wallet.get("balance", 0))
+		context.credit_label = PURSE_LABELS[kind]
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		context.credit_balance = 0
+		# NOT zero. A failed wallet fetch is not "you are out of credits" -- rendering it
+		# that way turns a licence denial or a Central blip into a false money message.
+		# None lets the template omit the figure entirely.
+		context.credit_balance = None
+		context.credit_label = None
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
@@ -52,7 +80,7 @@ def get_context(context):
 				from sigzenbi_client.utils import call_central_api
 				central_html = call_central_api(
 					url,
-					payload={"client": client_name, "chat_user": client_user},
+					payload={"client": client_name, "chat_user": client_user, "kind": kind},
 					method="GET",
 					timeout=10
 				)
@@ -64,18 +92,18 @@ def get_context(context):
 				guest_headers = {"Content-Type": "application/json"}
 				response = requests.get(
 					url,
-					params={"client": client_name, "chat_user": client_user},
+					params={"client": client_name, "chat_user": client_user, "kind": kind},
 					headers=guest_headers,
 					timeout=10
 				)
 				if response.status_code == 200:
 					central_html = response.json().get("message")
 		except Exception as e:
-			frappe.log_error(title="ai_chat", message=f"Error fetching central ai_chat_frame.html: {e}")
+			frappe.log_error(title=f"{kind} chat", message=f"Error fetching central ai_chat_frame.html: {e}")
 
 	if not central_html:
 		from sigzenbi_client.utils import guided_fallback
-		context.html_content = guided_fallback("The AI Chat builder", bool(base_url))
+		context.html_content = guided_fallback("The Build chat" if kind == "build" else "The AI Chat", bool(base_url))
 	else:
 		# Rewrite asset URLs to point to central server
 		if base_url:
@@ -88,30 +116,8 @@ def get_context(context):
 			central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
 			# Intercept the AI proxy endpoints to use client-side whitelisted proxies
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
-				"sigzenbi_client.API.ai_proxy.create_chart_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
-				"sigzenbi_client.API.ai_proxy.generate_sql_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.preview_query_from_question",
-				"sigzenbi_client.API.ai_proxy.preview_query_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.save_chart_from_sql",
-				"sigzenbi_client.API.ai_proxy.save_chart_from_sql"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.chat_dashboard.",
-				"sigzenbi_client.API.ai_proxy."
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.chat_api.",
-				"sigzenbi_client.API.ai_proxy."
-			)
+			from sigzenbi_client.utils import route_ai_methods_to_proxy
+			central_html = route_ai_methods_to_proxy(central_html)
 
 		# Attach the client session CSRF token to the chat fetches; the Central-authored
 		# callChat() sends POST send_message with no headers -> CSRFTokenError. GET paths

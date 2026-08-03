@@ -3,6 +3,10 @@ import frappe.sessions
 import requests
 from urllib.parse import unquote
 
+# Per-user CSRF token and balance render into this page -- never serve it from the
+# shared page cache, which keys on path + language and NOT on user.
+no_cache = 1
+
 
 def get_context(context):
 	context.no_cache = 1
@@ -28,10 +32,16 @@ def get_context(context):
 		from sigzenbi_client.API.ai_proxy import get_wallet_balance, get_suggested_questions
 
 		wallet = get_wallet_balance() or {}
-		context.credit_balance = wallet.get("balance", 0)
+		# THE PURSE THIS PAGE SPENDS. Falls back to the combined total so a Central that
+		# has not been redeployed yet (no per-purse keys) keeps rendering a number rather
+		# than a zero.
+		context.credit_balance = wallet.get("interactive", wallet.get("balance", 0))
+		context.credit_label = "Chat credits"
 		context.suggestions = get_suggested_questions() or []
 	except Exception:
-		context.credit_balance = 0
+		# NOT zero -- see ai_chat.render_chat. A failed fetch is not "out of credits".
+		context.credit_balance = None
+		context.credit_label = None
 		context.suggestions = []
 
 	base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
@@ -88,14 +98,8 @@ def get_context(context):
 			central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
 			# Intercept the AI proxy endpoints to use client-side whitelisted proxies
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.create_chart_from_question",
-				"sigzenbi_client.API.ai_proxy.create_chart_from_question"
-			)
-			central_html = central_html.replace(
-				"sigzenbi_central.API.ai.nl2sql_api.generate_sql_from_question",
-				"sigzenbi_client.API.ai_proxy.generate_sql_from_question"
-			)
+			from sigzenbi_client.utils import route_ai_methods_to_proxy
+			central_html = route_ai_methods_to_proxy(central_html)
 
 		context.html_content = central_html
 

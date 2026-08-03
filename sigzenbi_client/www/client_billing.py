@@ -67,7 +67,7 @@ def get_context(context):
     if base_url and central_sid:
         try:
             _o = requests.get(
-                f"{base_url}api/method/sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
+                f"{base_url}api/method/sigzenbi_central.API.billing.byok_api.get_ai_billing_status",
                 cookies={"sid": central_sid}, timeout=20)
             if _o.ok:
                 context.is_owner = 1
@@ -79,6 +79,27 @@ def get_context(context):
 
     context.packs = []
     context.purchase_history = []
+
+    # Seat configurator prefill (P1.11). The client box does not hold the subscription --
+    # Central does -- so the current configuration is read through the SAME credentialed
+    # endpoint the paywall already uses. Defaults are the FLOOR, not zero: a tenant whose
+    # row predates the seat model still has an analyst and two viewers, and starting the
+    # steppers at zero would invite them to "upgrade" to less than they hold.
+    context.current_analyst_seats = 1
+    context.current_viewer_seats = 2
+    context.current_ai_licences = 0
+    context.current_billing_interval = "Month"
+    try:
+        from sigzenbi_client.www.client_dashboard import _fetch_subscription_state
+        state = _fetch_subscription_state(client_user) or {}
+        # An older Central returns none of these keys; `or` keeps the floor defaults rather
+        # than writing zeros the owner would then be shown as their current plan.
+        context.current_analyst_seats = int(state.get("analyst_seats") or 0) or 1
+        context.current_viewer_seats = int(state.get("viewer_seats") or 0) or 2
+        context.current_ai_licences = int(state.get("ai_licences") or 0)
+        context.current_billing_interval = state.get("billing_interval") or "Month"
+    except Exception:
+        frappe.log_error(title="client_billing", message="seat prefill failed; showing floor defaults")
 
     central_html = ""
     if base_url:
@@ -109,18 +130,11 @@ def get_context(context):
     # Route every AI billing method the page's JS calls to the client-side sid-forwarding
     # proxies -- the browser must never hit the Central domain (root CLAUDE.md rule).
     rewrites = {
-        "sigzenbi_central.API.ai.payment_api.get_available_packs": "sigzenbi_client.API.ai_proxy.get_available_packs",
-        "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase": "sigzenbi_client.API.ai_proxy.initiate_razorpay_purchase",
-        "sigzenbi_central.API.ai.payment_api.get_purchase_history": "sigzenbi_client.API.ai_proxy.get_purchase_history",
-        "sigzenbi_central.API.ai.payment_api.get_ledger": "sigzenbi_client.API.ai_proxy.get_ledger",
-        "sigzenbi_central.API.ai.payment_api.get_wallet_balance": "sigzenbi_client.API.ai_proxy.get_wallet_balance",
-        "sigzenbi_central.API.ai.byok_api.save_byok_key": "sigzenbi_client.API.ai_proxy.save_byok_key",
-        "sigzenbi_central.API.ai.byok_api.remove_byok_key": "sigzenbi_client.API.ai_proxy.remove_byok_key",
-        "sigzenbi_central.API.ai.byok_api.set_ai_policy": "sigzenbi_client.API.ai_proxy.set_ai_policy",
-        "sigzenbi_central.API.ai.byok_api.get_ai_billing_status": "sigzenbi_client.API.ai_proxy.get_ai_billing_status",
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
         "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",
     }
+    from sigzenbi_client.utils import route_ai_methods_to_proxy
+    central_html = route_ai_methods_to_proxy(central_html)
     for central_method, client_method in rewrites.items():
         central_html = central_html.replace(central_method, client_method)
 

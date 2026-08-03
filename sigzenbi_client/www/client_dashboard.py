@@ -83,17 +83,26 @@ def renew_subscription():
 
 
 @frappe.whitelist(allow_guest=True)
-def upgrade_subscription(plan=None):
+def upgrade_subscription(plan=None, analysts=0, viewers=0, ai_licences=0,
+                        interval="Month", currency="INR"):
     """Sid-forwarded proxy for Central's `client_dashboard.upgrade_subscription` (2026-07-11).
 
     Same sid-only rule as renew_subscription above: NEVER utils.call_central_api, whose
     tenant-API-key auth would authenticate every caller as the org owner. Central re-derives
     the tenant from the forwarded session and enforces owner-only, and validates `plan`
-    against the catalog -- we pass it straight through without trusting it."""
+    against the catalog -- we pass it straight through without trusting it.
+
+    Carries the configurator's seat quantities (P1.11). They are forwarded raw for the same
+    reason `plan` is: Central validates them at its trust boundary and RECOMPUTES the amount
+    from them. This proxy never sees or sends a price, so there is nothing here to forge.
+    Note there is deliberately no equivalent on renew_subscription -- a renewal bills the
+    STORED configuration, and accepting quantities there would turn a renewal into an
+    unpriced plan change."""
     from sigzenbi_client.API.team_proxy import _forward
     return _forward(
         "sigzenbi_central.www.client_dashboard.upgrade_subscription",
-        {"plan": plan},
+        {"plan": plan, "analysts": analysts, "viewers": viewers,
+         "ai_licences": ai_licences, "interval": interval, "currency": currency},
     )
 
 
@@ -158,12 +167,35 @@ def get_context(context):
     context.central_url = base_url
     context.csrf_token = frappe.sessions.get_csrf_token()
 
-    # Task 5 paywall: an Expired subscription (trial ended, see Task 4) can still log in
-    # but has no data -- render the choose-a-plan paywall instead of the empty dashboards.
-    # Fail OPEN (state is None) to the normal render on any lookup error. The plan buttons
-    # reuse the existing /client_billing?plan= checkout (Razorpay) -- no new payment code.
+    # Paywall (PLAN P23.10). THREE states, not two -- that distinction is the whole fix:
+    #
+    #   entitled       render the dashboards
+    #   not entitled   render the paywall (shown-and-paywalled, SPEC 7 -- an upsell
+    #                  converts, a hidden menu item just looks broken)
+    #   UNKNOWN        render neither
+    #
+    # This used to FAIL OPEN: any Central lookup error left state=None and fell through
+    # to the normal render, so an expired tenant saw their dashboards whenever Central
+    # was slow or unreachable. A gate that fails open is not a gate.
+    #
+    # But failing straight to the paywall would tell a PAYING customer they have not
+    # paid, on a transient blip. So unknown gets its own screen: no data, no false
+    # accusation, and a refresh. Same pattern client_billing.py already uses for
+    # owner_check_failed.
+    #
+    # This is UX only. Central refuses the endpoints regardless of what is rendered here
+    # (P23.8) -- nothing below grants anything.
     state = _fetch_subscription_state(user)
-    if state and state.get("status") == "Expired":
+    if state is None:
+        context.entitlement_unknown = 1
+        from sigzenbi_client.utils import guided_fallback
+
+        context.central_html = guided_fallback("Your dashboard", True)
+        return context
+
+    # BI specifically, not just "is the subscription alive": an AI-only tenant has an
+    # Active subscription and still must not be shown dashboards they did not buy.
+    if state.get("status") == "Expired" or not state.get("bi", True):
         from sigzenbi_client.utils import fetch_active_plans
         context.plans = fetch_active_plans(base_url)
         with open(frappe.get_app_path("sigzenbi_client", "www", "paywall.html"), encoding="utf-8") as _pf:
@@ -254,38 +286,8 @@ def get_context(context):
             # though client_dashboard.html itself doesn't call them yet -- this keeps
             # client_billing.html/nav (phase2-9/Task 9) working without a second pass
             # over this file.
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_available_packs",
-                "sigzenbi_client.API.ai_proxy.get_available_packs"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase",
-                "sigzenbi_client.API.ai_proxy.initiate_razorpay_purchase"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_purchase_history",
-                "sigzenbi_client.API.ai_proxy.get_purchase_history"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.payment_api.get_ledger",
-                "sigzenbi_client.API.ai_proxy.get_ledger"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.save_byok_key",
-                "sigzenbi_client.API.ai_proxy.save_byok_key"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.remove_byok_key",
-                "sigzenbi_client.API.ai_proxy.remove_byok_key"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.set_ai_policy",
-                "sigzenbi_client.API.ai_proxy.set_ai_policy"
-            )
-            central_html = central_html.replace(
-                "sigzenbi_central.API.ai.byok_api.get_ai_billing_status",
-                "sigzenbi_client.API.ai_proxy.get_ai_billing_status"
-            )
+            from sigzenbi_client.utils import route_ai_methods_to_proxy
+            central_html = route_ai_methods_to_proxy(central_html)
             # Fix: the Renew button called this Central www method name directly
             # against the client origin (unproxied -> 404, see renew_subscription()
             # below). Route it through the sid-forwarded client proxy instead.
