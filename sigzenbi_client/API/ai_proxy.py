@@ -303,13 +303,23 @@ def get_purchase_history(limit=20):
 
 
 @central_authed
-def get_ledger(limit=50):
+def get_ledger(limit=50, offset=0, types=None, allowance=None, **kwargs):
 	"""Proxy AI credit ledger fetch to Central. sid-forwarded (2026-07-10 security
-	fix) -- see initiate_razorpay_purchase for why."""
+	fix) -- see initiate_razorpay_purchase for why.
+
+	get_ledger grew offset/types/allowance on Central (the ledger timeline rewrite).
+	This proxy builds an EXPLICIT payload rather than splatting kwargs, so an
+	unforwarded parameter vanishes silently -- the filter would appear to do nothing
+	with no error."""
 	from sigzenbi_client.API.team_proxy import _forward
+	payload = {"client_name": _get_client_name(), "limit": limit, "offset": offset}
+	if types:
+		payload["types"] = types
+	if allowance:
+		payload["allowance"] = allowance
 	return _forward(
 		"sigzenbi_central.API.billing.payment_api.get_ledger",
-		{"client_name": _get_client_name(), "limit": limit},
+		payload,
 	)
 
 

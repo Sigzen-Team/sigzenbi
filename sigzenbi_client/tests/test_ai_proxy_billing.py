@@ -68,6 +68,25 @@ class TestAIProxyBilling(FrappeTestCase):
         self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.get_ledger")
         self.assertEqual(payload["limit"], 5)
         self.assertEqual(payload["client_name"], ai_proxy._get_client_name())
+        # offset always forwarded (default 0); types/allowance omitted when falsy so an
+        # empty filter reads as "no filter" to Central, not as an impossible one.
+        self.assertEqual(payload["offset"], 0)
+        self.assertNotIn("types", payload)
+        self.assertNotIn("allowance", payload)
+
+    def test_get_ledger_forwards_the_timeline_filters(self):
+        """get_ledger grew offset/types/allowance on Central for the ledger timeline
+        rewrite (2026-08-03). This proxy builds an EXPLICIT payload rather than
+        splatting kwargs, so an unforwarded param vanishes silently -- the purse/type
+        filter would appear to do nothing, with no error."""
+        with patch(FORWARD, return_value={"rows": [], "total": 0}) as m:
+            ai_proxy.get_ledger(limit=25, offset=25, types='["Grant","Purchase"]', allowance="build")
+        method_path, payload = m.call_args[0]
+        self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.get_ledger")
+        self.assertEqual(payload["offset"], 25)
+        self.assertEqual(payload["types"], '["Grant","Purchase"]')
+        self.assertEqual(payload["allowance"], "build")
+        self.assertEqual(payload["client_name"], ai_proxy._get_client_name())
 
     # BYOK endpoints: client_name is NOT forwarded -- Central's byok_api derives it
     # from session.user server-side; passing it would be an unexpected kwarg.
