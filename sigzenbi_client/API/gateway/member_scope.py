@@ -12,7 +12,9 @@ WHY `frappe.set_user` AND NOT `build_match_conditions(user=...)`: several Frappe
 (Contact/Address, File, Dashboard) ignore the `user` argument and read `frappe.session.user`, and
 Server Scripts are arbitrary customer code that may read the session too. Passing the parameter
 alone silently drops a customer's own restrictions — the exact fail-open this feature exists to
-eliminate. The session is restored in a `finally`.
+eliminate. `frappe.set_user` also wipes `local.form_dict`, `local.cache`, `session.sid` and
+`session.data` (frappe/__init__.py:367-380) and re-setting the caller does NOT put them back, so
+this endpoint snapshots and restores that request-local state itself, in a `finally`.
 
 TRUST MODEL — identical to member_permissions.py, deliberately:
   * AuthN: per-tenant `gateway_secret` via auth.validate_secret (constant-time), in the POST body,
@@ -35,14 +37,41 @@ import re
 
 import frappe
 
-from sigzenbi_client.API.gateway.auth import validate_secret
+from sigzenbi_client.API.gateway.auth import validate_gateway_request
 
 # Imported rather than re-stated: this is THE definition of what our own execution guard refuses
-# (__Auth / tabUser* / tabSingles). A second copy here would drift, and the drift would be a
-# clause that composes cleanly and is then rejected at execution — a silently blank dashboard.
-from sigzenbi_client.API.gateway.local_db import _SENSITIVE_TABLE_RE
+# (__Auth / tabUser* / tabSingles — and, because `\b` treats a space as a word boundary, anything
+# whose name STARTS with one of those, e.g. `tabUser Permission`). A second copy here would
+# drift, and the drift would be a clause that composes cleanly and is then rejected at
+# execution — a silently blank dashboard.
+# BLOCKED_KEYWORDS/_INTO_FILE_RE/_get_executable_sql come along for the same reason: the
+# statement-shape guard in _literals_for must be the SAME guard the gateway applies, not a
+# second, weaker opinion.
+from sigzenbi_client.API.gateway.local_db import (
+	BLOCKED_KEYWORDS,
+	_get_executable_sql,
+	_INTO_FILE_RE,
+	_SENSITIVE_TABLE_RE,
+)
 
 DENY = "DENY"
+
+# One message for every authentication/authorisation outcome. See get_member_scope.
+_UNAUTHORIZED = "Unauthorized."
+
+# frappe.set_user clobbers these and re-setting the caller does not restore them
+# (frappe/__init__.py:367-380). This endpoint runs inside a live request, so it puts them back.
+# `session` is NOT here: it is mutated in place, so its own keys are snapshotted separately.
+_REQUEST_LOCALS = (
+	"form_dict",
+	"cache",
+	"jenv_restricted",
+	"jenv_unrestricted",
+	"role_permissions",
+	"new_doc_templates",
+	"user_perms",
+)
+_SESSION_KEYS = ("user", "sid", "data")
 
 # Above this many literals a flattened allow-list stops being a predicate and becomes an outage.
 # A visible refusal is the safe failure; an unbounded IN(...) is a slow one.
@@ -64,18 +93,51 @@ def _denied(doctypes):
 
 
 def _matching_paren(sql, open_index):
-	"""Index of the `)` closing the `(` at `open_index`, or -1. String literals are not tracked:
-	a parenthesis inside a quoted literal would mis-balance, and a mis-balanced scan yields a
-	subquery that fails to execute — which denies. Wrong here is never permissive."""
+	"""Index of the `)` closing the `(` at `open_index`, or -1.
+
+	Quoting IS tracked. A `)` inside `'a)b'` closing the scan early does not merely deny — it
+	splices literals into the middle of a string and hands out a clause that is neither the
+	member's restriction nor a refusal. Frappe escapes user data into these fragments (a
+	customer name, a project title), so a bracket in a literal is ordinary data, not an attack."""
 	depth = 0
-	for i in range(open_index, len(sql)):
-		if sql[i] == "(":
+	quote = None
+	i = open_index
+	while i < len(sql):
+		ch = sql[i]
+		if quote:
+			if ch == "\\":
+				i += 2           # MySQL backslash escape inside a literal
+				continue
+			if ch == quote:
+				# '' / "" / `` inside a literal is an escaped quote, not the end of it.
+				if i + 1 < len(sql) and sql[i + 1] == quote:
+					i += 2
+					continue
+				quote = None
+		elif ch in "'\"`":
+			quote = ch
+		elif ch == "(":
 			depth += 1
-		elif sql[i] == ")":
+		elif ch == ")":
 			depth -= 1
 			if depth == 0:
 				return i
+		i += 1
 	return -1
+
+
+def _is_plain_select(subquery):
+	"""True only for a single, read-only SELECT. `;` alone is not a statement-shape guard, and
+	the premise that "Frappe composed this fragment, so it is not caller input" is false: a
+	Permission Query Server Script is customer-authored text that Frappe embeds verbatim. Same
+	guard as the SQL gateway (local_db.is_read_only_sql) minus its sensitive-table rule, which
+	is the one thing this function must be allowed to read."""
+	if not subquery or ";" in subquery or "/*!" in subquery:
+		return False
+	sql = _get_executable_sql(subquery)
+	if not sql.upper().startswith("SELECT"):
+		return False
+	return not (BLOCKED_KEYWORDS.search(sql) or _INTO_FILE_RE.search(sql))
 
 
 def _next_blocked_subquery(sql):
@@ -95,10 +157,10 @@ def _literals_for(subquery):
 	"""Run a blocked-table subquery HERE (where reading tabUser is legitimate) and return its
 	first column as escaped SQL literals, or DENY.
 
-	Frappe composed this fragment; it is not caller input. It is still required to be a single
-	SELECT, and a correlated one simply fails to execute standalone — which denies, correctly,
-	because the correlation cannot be represented as a literal list."""
-	if ";" in subquery:
+	Required to be a single read-only SELECT before it runs (_is_plain_select). A correlated one
+	passes that guard and then fails to execute standalone — which denies, correctly, because the
+	correlation cannot be represented as a literal list."""
+	if not _is_plain_select(subquery):
 		return DENY
 	try:
 		rows = frappe.db.sql(subquery)
@@ -171,11 +233,14 @@ def _clause_for(doctype):
 	return f"({flattened})"
 
 
-def _parent_doctype_of(child):
-	"""The single doctype that owns `child`, or None when it is ambiguous or absent.
+def _parent_doctypes_of(child):
+	"""EVERY doctype that owns `child`, as a set (empty when nothing references it).
 
-	Ambiguity denies: with two possible parents there is no one restriction to apply, and
-	guessing would either leak the wrong parent's rows or blank the right one's."""
+	Not "the single parent, else None": on this bench 55 of 413 child doctypes are used by more
+	than one parent (Sales Taxes and Charges, Payment Schedule, Item Wise Tax Detail with 9…),
+	and collapsing that to DENY blanked a dataset for a member with zero restrictions. A child
+	row names its own owner in `parenttype`, so several parents are representable — see
+	_child_clause."""
 	table_types = ("Table", "Table MultiSelect")
 	parents = set(
 		frappe.get_all(
@@ -193,46 +258,110 @@ def _parent_doctype_of(child):
 			distinct=True,
 		)
 	)
-	return parents.pop() if len(parents) == 1 else None
+	return parents
 
 
-def _row_clause(doctype, meta, parent):
-	if not meta.istable:
-		return _clause_for(doctype)
+def _child_clause(child, clause_by_parent):
+	"""Constrain a child table by its parents' restrictions.
 
-	# build_match_conditions RAISES for a child table (verified live on Sales Invoice Item), but
-	# our datasets DO join child tables — treating that as DENY would blank dashboards a member
-	# is entitled to. In Frappe a child row is visible iff its PARENT document is; it has no
-	# independent permission. So constrain by the parent instead.
-	if not parent:
+	build_match_conditions RAISES for a child table (verified live on Sales Invoice Item), but
+	our datasets DO join child tables — treating that as DENY would blank dashboards a member is
+	entitled to. In Frappe a child row is visible iff its PARENT document is; it has no
+	independent permission.
+
+	With several possible parents each contributes its own arm, keyed on the row's own
+	`parenttype`, so a row whose parenttype is not among them matches nothing — fail-closed by
+	construction rather than by a blanket refusal. Columns are qualified with the child's own
+	table: a bare `parent` is ambiguous the moment two child tables meet in one dataset (MySQL
+	1052) and leaves the Stage C alias rewriter nothing to anchor on."""
+	arms = []
+	restricted = False
+	for parent in sorted(clause_by_parent):
+		parent_clause = clause_by_parent[parent]
+		if parent_clause == DENY:
+			# That parent's rows are invisible to this member; its arm simply never appears.
+			restricted = True
+			continue
+		owned_by = f"`tab{child}`.`parenttype` = {frappe.db.escape(parent)}"
+		if parent_clause:
+			restricted = True
+			arms.append(
+				f"({owned_by} AND `tab{child}`.`parent` IN "
+				f"(SELECT `name` FROM `tab{parent}` WHERE {parent_clause}))"
+			)
+		else:
+			arms.append(f"({owned_by})")
+	if not arms:
+		# No parent at all (17 such child doctypes here), or every one of them denies. SPEC §4.
 		return DENY
-	parent_clause = _clause_for(parent)
-	if parent_clause == DENY:
-		return DENY
-	if not parent_clause:
+	if not restricted:
+		# Every possible parent is genuinely unrestricted, so the child is too. Emitting a
+		# parenttype filter here would invent a restriction Frappe does not impose.
 		return ""
-	return f"(`parent` IN (SELECT `name` FROM `tab{parent}` WHERE {parent_clause}))"
+	return "(" + " OR ".join(arms) + ")"
 
 
 def _permitted_fields(doctype, member_email, parent):
-	"""The member's readable fields (permlevel / field permissions), or None if unresolvable.
+	"""The member's readable fields (permlevel / field permissions), or None if they may read
+	none — which denies. An empty list is NOT "no restriction".
 
-	An empty list is NOT "no restriction" — it means no readable column, which denies. Passed
-	`user=` explicitly as well as running under set_user so the answer cannot depend on which
-	one this Frappe version honours."""
-	from frappe.model import get_permitted_fields
+	Deliberately NOT frappe.model.get_permitted_fields. That helper returns EVERY column with no
+	user check at all for the 19 CORE_DOCTYPES (frappe/model/__init__.py:228) — tabUser's
+	api_key/api_secret included — and for every other doctype it still returns default+optional
+	fields when the member may read nothing (:254), so it can never return an empty list and the
+	fail-closed branch below could never fire. We ask the permission engine itself
+	(Meta.get_permitted_fieldnames, which get_permitted_fields is a wrapper around) and rebuild
+	the same shape around ITS answer.
 
-	fields = get_permitted_fields(doctype, parenttype=parent, user=member_email)
-	return list(fields) if fields else None
+	`permission_type=None` makes Frappe pick read vs select for this member, exactly as
+	get_permitted_fields does; a select-only member is narrowed to search fields."""
+	from frappe.model import child_table_fields, optional_fields
+
+	meta = frappe.get_meta(doctype)
+	readable = meta.get_permitted_fieldnames(
+		parenttype=parent, user=member_email, permission_type=None
+	)
+	if not readable:
+		return None
+
+	valid = set(meta.get_valid_columns())
+	fields = [*meta.default_fields, *(f for f in optional_fields if f in valid)]
+	if meta.istable:
+		fields.extend(child_table_fields)
+	fields.extend(readable)
+	return list(dict.fromkeys(fields))
+
+
+def _child_permitted_fields(child, member_email, parents):
+	"""Readable columns of a child table across every parent whose rows the member can see —
+	the INTERSECTION, because one dataset column spans rows of every parenttype and a field
+	readable only under one parent must not become readable on another's rows."""
+	common = None
+	for parent in parents:
+		fields = _permitted_fields(child, member_email, parent)
+		if fields is None:
+			return None
+		if common is None:
+			common = fields
+		else:
+			keep = set(fields)
+			common = [f for f in common if f in keep]
+	return common or None
 
 
 def _scope_for(doctype, member_email):
 	denied = {"clause": DENY, "fields": []}
 	try:
 		meta = frappe.get_meta(doctype)
-		parent = _parent_doctype_of(doctype) if meta.istable else None
-		clause = _row_clause(doctype, meta, parent)
-		fields = _permitted_fields(doctype, member_email, parent)
+		if meta.istable:
+			clause_by_parent = {p: _clause_for(p) for p in _parent_doctypes_of(doctype)}
+			clause = _child_clause(doctype, clause_by_parent)
+			# Only the parents that actually contribute rows may narrow the column list.
+			visible = [p for p, c in clause_by_parent.items() if c != DENY]
+			fields = _child_permitted_fields(doctype, member_email, visible)
+		else:
+			clause = _clause_for(doctype)
+			fields = _permitted_fields(doctype, member_email, None)
 	except Exception:
 		frappe.log_error(
 			title="Sigzen Member Scope — composition failed",
@@ -250,17 +379,25 @@ def _scope_for(doctype, member_email):
 
 
 def _requested_doctypes(doctypes):
-	"""Normalise the wire form (a JSON string over HTTP, a list in-process) to unique names."""
+	"""Normalise the wire form (a JSON string over HTTP, a list in-process) to unique names, or
+	None if the payload is not a non-empty list of doctype names.
+
+	Nothing is silently dropped. A dropped entry would come back as a SUCCESSFUL, cacheable
+	answer with no row for a doctype that WAS requested — and a caller reading a missing key as
+	"unrestricted" is the exact ""/DENY conflation this feature exists to remove. A request we
+	do not fully understand is a failure, not an empty success."""
 	if isinstance(doctypes, str):
 		try:
 			doctypes = frappe.parse_json(doctypes)
 		except Exception:
-			doctypes = [doctypes]
+			doctypes = [doctypes]      # form-encoded single name, not JSON
 	if isinstance(doctypes, str):
 		doctypes = [doctypes]
-	if not isinstance(doctypes, list | tuple):
-		return []
-	return list(dict.fromkeys(d for d in doctypes if isinstance(d, str) and d.strip()))
+	if not isinstance(doctypes, list | tuple) or not doctypes:
+		return None
+	if not all(isinstance(d, str) and d.strip() for d in doctypes):
+		return None
+	return list(dict.fromkeys(d.strip() for d in doctypes))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -268,28 +405,26 @@ def get_member_scope(client_name=None, member_email=None, doctypes=None, secret=
 	"""Return {"success": True, "scope": {doctype: {"clause": str|"DENY", "fields": [str]}}}
 	for `member_email` on THIS site. See the module docstring for the trust model and the
 	fail-closed contract."""
-	ok, err = validate_secret(secret, client_name=client_name)
+	# One call, hosted-identity FIRST (auth.validate_gateway_request), and one message back.
+	# The distinct errors ("No gateway secret is configured for this client." vs "Invalid or
+	# missing secret.") let an unauthenticated caller enumerate which tenants this bench hosts
+	# and which are provisioned; the specific reason goes to the log, not to the wire.
+	ok, err = validate_gateway_request(secret=secret, client_name=client_name)
 	if not ok:
 		# secret_provided (bool) ONLY — never the value (Error Log is broadly readable).
 		frappe.log_error(
 			title="Sigzen Member Scope — auth failure",
 			message=f"{err}\nclient_name={client_name}\nsecret_provided={bool(secret)}",
 		)
-		return _failure(err)
-
-	# Lazy import (matches trigger_refresh/member_permissions) — avoids a module-load cycle.
-	from sigzenbi_client.API.gateway.poll_jobs import _candidate_client_names
-
-	if not client_name or client_name not in _candidate_client_names():
-		frappe.log_error(
-			title="Sigzen Member Scope — non-hosted client_name",
-			message=f"client_name={client_name}\nsecret_provided={bool(secret)}",
-		)
-		return _failure("client_name is not a hosted identity on this site.")
+		return _failure(_UNAUTHORIZED)
 
 	requested = _requested_doctypes(doctypes)
-	if not requested:
-		return {"success": True, "scope": {}}
+	if requested is None:
+		frappe.log_error(
+			title="Sigzen Member Scope — malformed doctypes payload",
+			message=f"client_name={client_name}\ntype={type(doctypes).__name__}",
+		)
+		return _failure("doctypes must be a non-empty list of doctype names.")
 
 	# SPEC §3.9: a BI seat is only ever a real ERPNext user, and access follows the ERP. A member
 	# whose user was deleted or disabled has no permissions to derive — that is DENY, not
@@ -301,11 +436,18 @@ def get_member_scope(client_name=None, member_email=None, doctypes=None, secret=
 		return _denied(requested)
 
 	caller = frappe.session.user
+	saved_locals = {k: getattr(frappe.local, k, None) for k in _REQUEST_LOCALS}
+	saved_session = {k: frappe.local.session.get(k) for k in _SESSION_KEYS}
 	try:
 		frappe.set_user(member_email)
 		scope = {dt: _scope_for(dt, member_email) for dt in requested}
 	finally:
 		# Non-negotiable: this runs inside a live request. Leaving the session as the member
-		# would hand the rest of the request their identity.
+		# would hand the rest of the request their identity. set_user(caller) re-derives the
+		# per-user permission state; the two loops put back what set_user wiped but does not
+		# rebuild — sid, session data and the request's own form_dict.
 		frappe.set_user(caller)
+		for key, value in saved_locals.items():
+			setattr(frappe.local, key, value)
+		frappe.local.session.update(saved_session)
 	return {"success": True, "scope": scope}
