@@ -81,6 +81,14 @@ def get_context(context):
     context.is_owner = 0
     context.billing_status = {}
     context.owner_check_failed = 0
+    # THE SPEND TABLE'S CONTEXT. This page is MIRRORED -- Central owns the markup, this site
+    # renders it with THIS context -- so a context var Central's own controller computes does
+    # NOT exist here unless we set it. `spend_total` reaches the template as `{:,.0f}`.format(),
+    # which THROWS on Undefined (unlike the `{% for %}` above it, which silently renders empty),
+    # so the whole page fell to the except-branch below. Defaults first: a non-owner renders the
+    # table empty rather than crashing, exactly like a tenant that has spent nothing.
+    context.spend_by_window = []
+    context.spend_total = 0
     if base_url and central_sid:
         try:
             _o = requests.get(
@@ -89,6 +97,10 @@ def get_context(context):
             if _o.ok:
                 context.is_owner = 1
                 context.billing_status = _o.json().get("message") or {}
+                # Same round trip, no extra call -- get_ai_billing_status carries the spend
+                # report (it is owner-gated there, and this branch IS the owner).
+                context.spend_by_window = context.billing_status.get("spend_by_window") or []
+                context.spend_total = context.billing_status.get("spend_total") or 0
             elif _o.status_code not in (401, 403):
                 context.owner_check_failed = 1
         except Exception:
@@ -166,6 +178,12 @@ def get_context(context):
         context.html_content = frappe.render_template(central_html, context)
     except Exception as e:
         frappe.log_error(title="client_billing", message=f"Error rendering central client_billing template: {e}")
-        context.html_content = central_html
+        # NEVER serve the raw template. Central's markup is unrendered Jinja plus internal
+        # developer comments; handing it to the browser leaked template source to customers
+        # (e2e Batch 0 check 0.3) and showed literal {% if %} where the billing page should be.
+        # A render failure is an outage, so say so -- the same guided message every other
+        # mirrored page falls back to.
+        from sigzenbi_client.utils import guided_fallback
+        context.html_content = guided_fallback("AI & Billing", bool(base_url))
 
     return context
