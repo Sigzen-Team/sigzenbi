@@ -267,15 +267,18 @@ class TestB3Flattening(MemberScopeTestCase):
 		self.assertEqual(member_scope._flatten_blocked_subqueries(raw), raw)
 
 	def test_blocked_table_subquery_is_flattened_to_literals(self):
+		# Administrator, not MEMBER: this tests the FLATTENING of a tabUser subquery, and it
+		# resolves against the LOCAL DB -- MEMBER exists only on the bench that authored the
+		# suite (box1 run produced IN (NULL) and failed, 2026-08-06).
 		raw = (
 			"`tabSales Invoice`.`owner` IN "
-			"(SELECT `name` FROM `tabUser` WHERE `name` = " + frappe.db.escape(MEMBER) + ")"
+			"(SELECT `name` FROM `tabUser` WHERE `name` = 'Administrator')"
 		)
 		out = member_scope._flatten_blocked_subqueries(raw)
 		self.assertNotEqual(out, DENY)
 		self.assertNotIn("tabUser", out)
 		self.assertNotIn("SELECT", out.upper())
-		self.assertIn(frappe.db.escape(MEMBER), out)
+		self.assertIn("'Administrator'", out)
 
 	def test_a_blocked_subquery_resolving_to_nothing_matches_no_rows(self):
 		raw = (
@@ -487,13 +490,13 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 		# produced a fragment that neither flattens nor denies for the right reason.
 		raw = (
 			"`tabSales Invoice`.`owner` IN (SELECT `name` FROM `tabUser` "
-			"WHERE `full_name` != 'a)b' AND `name` = " + frappe.db.escape(MEMBER) + ")"
+			"WHERE `full_name` != 'a)b' AND `name` = 'Administrator')"
 		)
 		with patch("frappe.log_error"):
 			out = member_scope._flatten_blocked_subqueries(raw)
 		self.assertNotEqual(out, DENY)
 		self.assertNotIn("tabUser", out)
-		self.assertIn(frappe.db.escape(MEMBER), out)
+		self.assertIn("'Administrator'", out)
 
 	# ---- child doctypes (SPEC §3.5b) ----
 

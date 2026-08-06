@@ -146,6 +146,21 @@ after_install = "sigzenbi_client.after_install.after_install.create_default_perm
 # 	}
 # }
 
+# Member-scope cache invalidation (SPEC-member-row-security 3.2): these are the SAME
+# doctypes Frappe itself invalidates permissions on. Each event enqueues ONE post to
+# Central's bust_member_scope so a permission edit bites on the next dashboard render
+# instead of after the 60s TTL. Enqueue-only + never-raise: see API/gateway/bust_scope.py.
+_BUST = "sigzenbi_client.API.gateway.bust_scope.on_permission_change"
+doc_events = {
+	"User Permission": {"on_update": _BUST, "on_trash": _BUST},
+	"DocShare": {"on_update": _BUST, "on_trash": _BUST},
+	"User": {"on_update": _BUST, "on_trash": _BUST},
+	"DocPerm": {"on_update": _BUST, "on_trash": _BUST},
+	"Custom DocPerm": {"on_update": _BUST, "on_trash": _BUST},
+	"Server Script": {"on_update": _BUST, "on_trash": _BUST},
+	"System Settings": {"on_update": _BUST},
+}
+
 # Scheduled Tasks
 # ---------------
 scheduler_events = {
