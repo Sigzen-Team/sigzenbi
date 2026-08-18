@@ -76,30 +76,6 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
         finally:
             frappe.flags.in_fetch_first_user = False
 
-        # Ensure Client User Role exists with default role client record
-        client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
-        client_prefix = client_name.strip().replace(" ", "_") if client_name else "default_client"
-        default_role = f"{client_prefix}_Default"
-        if not frappe.db.exists("SigzenBI Role Client", default_role):
-            default_role = frappe.db.get_value("SigzenBI Role Client", {"name": ["like", "%_Default"]}, "name") or "Default"
-
-        if not frappe.db.exists("Client User Role", email):
-            frappe.get_doc({
-                "doctype": "Client User Role",
-                "user": email,
-                "roles": [{"role": default_role}],
-            }).insert(ignore_permissions=True)
-        else:
-            client_role_doc = frappe.get_doc("Client User Role", email)
-            if not any(row.role == default_role for row in client_role_doc.roles):
-                client_role_doc.append("roles", {"role": default_role})
-                client_role_doc.save(ignore_permissions=True)
-
-        frappe.db.sql(
-            "UPDATE `tabSigzenBI Users` SET role=%s WHERE name=%s",
-            [email, email]
-        )
-
         frappe.db.commit()
         return {"status": "success", "message": f"User {email} created and linked successfully."}
 

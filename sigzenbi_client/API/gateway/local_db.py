@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import frappe
@@ -41,13 +41,56 @@ _SENSITIVE_TABLE_RE = re.compile(
 QUERY_TIMEOUT_SECONDS = 25
 
 
+
+
+def _scannable_sql(sql):
+	"""One left-to-right pass that strips comments AND blanks single-quoted string literals.
+
+	The two must be handled TOGETHER: regex passes in either order corrupt each other — a
+	comment-strip first breaks a literal like 'Replace-A--B' at the --, and a literal-strip
+	first lets a quote inside /* */ open a fake literal that swallows real SQL. A literal is
+	inert data, so `customer IN ('Grant Plastics Ltd.')` must not trip \bGRANT\b (live
+	false-reject, 2026-08-06 member-RLS e2e: every query for a member scoped to that customer
+	was refused). Handles both MySQL escapes ('' doubling and backslash). Backtick and
+	double-quoted IDENTIFIERS stay in place — the sensitive-table check must still see them,
+	and a write statement cannot hide inside a string literal (the server reads it as data).
+	"""
+	out = []
+	i, n = 0, len(sql)
+	while i < n:
+		c = sql[i]
+		if c == "'":
+			i += 1
+			while i < n:
+				if sql[i] == "\\" and i + 1 < n:
+					i += 2
+					continue
+				if sql[i] == "'":
+					if i + 1 < n and sql[i + 1] == "'":
+						i += 2
+						continue
+					i += 1
+					break
+				i += 1
+			out.append("'?'")
+			continue
+		if sql[i:i + 2] == "--" or c == "#":
+			j = sql.find("\n", i)
+			i = n if j == -1 else j
+			continue
+		if sql[i:i + 2] == "/*":
+			j = sql.find("*/", i + 2)
+			i = n if j == -1 else j + 2
+			continue
+		out.append(c)
+		i += 1
+	return "".join(out)
+
+
 def _get_executable_sql(sql):
-	# Remove block comments /* ... */
-	sql_no_comments = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
-	# Remove single-line comments starting with -- or #
-	sql_no_comments = re.sub(r"(--|#).*?(\n|$)", "", sql_no_comments)
-	# Strip leading/trailing whitespace and common wrapper characters
-	return sql_no_comments.strip(" \t\n\r()[]")
+	# Comments and string literals handled in ONE pass (see _scannable_sql), then the
+	# wrapper characters stripped as before.
+	return _scannable_sql(sql).strip(" \t\n\r()[]")
 
 
 def is_read_only_sql(sql):
@@ -71,6 +114,8 @@ def is_read_only_sql(sql):
 	if not executable_sql.upper().startswith(READ_ONLY_PREFIXES):
 		return False, "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) are allowed."
 
+	# executable_sql already has comments stripped and string LITERALS blanked (one lexer
+	# pass), so data values cannot trip any of the statement-level checks below.
 	# Block multiple statements — a trailing semicolon is fine, an embedded one is not.
 	if ";" in executable_sql.rstrip().rstrip(";"):
 		return False, "Multiple SQL statements are not allowed."
@@ -111,11 +156,28 @@ def get_db_config():
 def _to_json_safe(val):
     if isinstance(val, (datetime, date)):
         return val.isoformat()
+    if isinstance(val, timedelta):
+        # MySQL TIME columns come back from MySQLdb as timedelta, and json.dumps cannot
+        # encode one. This was not a cosmetic bug: the query SUCCEEDED, then the result
+        # POST to Central raised inside requests' encoder, so the client never submitted
+        # anything and Central sat out its full timeout. `SELECT *` on any doctype with a
+        # Time field (Sales Order among them) looked like "0 rows / hangs" to the customer.
+        # str(timedelta) renders "1 day, 2:00:00" past 24h; TIME is a clock/duration, so
+        # emit [-]HH:MM:SS instead.
+        total = int(val.total_seconds())
+        sign = "-" if total < 0 else ""
+        total = abs(total)
+        return f"{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
     if isinstance(val, Decimal):
         return float(val)
     if isinstance(val, bytes):
         return val.decode("utf-8", errors="replace")
-    return val
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return val
+    # Catch-all, deliberately last. Any type we have not thought of would otherwise raise
+    # in the encoder AFTER a successful query and hang the gateway exactly as timedelta
+    # did. A stringified cell is always better than a query that never returns.
+    return str(val)
 
 
 def _sanitize_rows(rows):

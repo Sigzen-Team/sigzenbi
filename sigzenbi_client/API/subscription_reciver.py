@@ -114,14 +114,7 @@ def subscription_reciver(
                 frappe.throw(_("Unauthorized: invalid security key."), frappe.AuthenticationError)
 
         # Store subscription data in SigzenBI Subscription Settings
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_id", subscription_id)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_plan_name", subscription_name)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_start_date",
-                            datetime.datetime.strptime(subscription_start_date, "%Y-%m-%d").date())
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_end_date",
-                            datetime.datetime.strptime(subscription_end_date, "%Y-%m-%d").date())
         frappe.db.set_value("SigzenBI Subscription Settings", None, "subscription_status", subscription_status)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "max_users", max_user)
 
         # Credentials are stored per-client_name (SigzenBI Client Credential), not on
         # the shared singleton — see credentials.py. This avoids one client_name's
@@ -136,8 +129,6 @@ def subscription_reciver(
         if not existing_client_name:
             frappe.db.set_value("SigzenBI Subscription Settings", None, "client_name", client_name)
 
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "currency_vmhj", subscription_amount)
-        frappe.db.set_value("SigzenBI Subscription Settings", None, "licence_no", subscription_id)
         if sigzenbi_link:
             frappe.db.set_value("SigzenBI Subscription Settings", None, "sigzenbi_link", sigzenbi_link)
         if central_app_url and "superset" not in central_app_url:
@@ -148,7 +139,6 @@ def subscription_reciver(
             user_doc = frappe.get_doc("SigzenBI Users", {"user_id": user_id})
             user_doc.user_name = user_name
             user_doc.password = password
-            user_doc.role = user_id
             user_doc.save(ignore_permissions=True)
         else:
             frappe.get_doc({

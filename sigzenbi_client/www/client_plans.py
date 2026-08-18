@@ -62,8 +62,24 @@ def get_context(context):
         if _can_manage:
             from sigzenbi_client.utils import redirect_without_port
             redirect_without_port("/client_billing")  # raises frappe.Redirect
-    context.current_plan_name = frappe.db.get_single_value(
-        'SigzenBI Subscription Settings', 'subscription_plan_name') or ''
+    # THE PLAN THE TENANT IS ON, from Central -- not from a local mirror.
+    # This used to read `SigzenBI Subscription Settings.subscription_plan_name`, a stale copy
+    # that was removed on 2026-08-16. The page highlights the current plan, so blanking it
+    # silently dropped a feature (caught by test_client_plans_render). Same live state the
+    # dashboard and billing pages already use. Degrades to '' if Central is unreachable: the
+    # page still lists plans, it just cannot mark one as yours.
+    context.current_plan_name = ''
+    try:
+        # Anonymous visitors are the common case on this page -- no session, no plan to
+        # highlight, and no reason to make Central answer for it.
+        if current_bi_user:
+            from sigzenbi_client.www.client_dashboard import _fetch_subscription_state
+
+            _state = _fetch_subscription_state(current_bi_user) or {}
+            context.current_plan_name = _state.get("plan") or ''
+    except Exception:
+        frappe.log_error(title="client_plans: current plan lookup failed",
+                         message=frappe.get_traceback())
 
     api_url = f"{central_url}api/method/sigzenbi_central.API.send_subscription_plan.send_subscription_plan"
     

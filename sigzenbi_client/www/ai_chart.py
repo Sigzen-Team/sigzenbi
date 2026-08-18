@@ -24,7 +24,7 @@ def get_context(context):
 	context.user_email = client_user
 	context.user_name = frappe.db.get_value("User", client_user, "full_name") or client_user
 	context.subscription_plan = (
-		frappe.db.get_single_value("SigzenBI Subscription Settings", "subscription_plan_name") or "Active Plan"
+		"Active Plan"  # local mirror removed 2026-08-16; Central owns this and the page fetches it live
 	)
 
 	# Load credit balance and suggestions via proxy API

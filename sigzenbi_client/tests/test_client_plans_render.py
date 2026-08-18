@@ -20,20 +20,36 @@ from sigzenbi_client.www import client_plans
 def _gsv(doctype, field):
     return {
         "sigzenbi_erp_link": "",
-        "subscription_plan_name": "Growth",
     }.get(field, "")
 
 
 class TestClientPlansContext(unittest.TestCase):
-    def _run(self, bi_user):
+    def _run(self, bi_user, plan="Growth"):
+        # THE CURRENT PLAN NOW COMES FROM CENTRAL, not from a local mirror field
+        # (`subscription_plan_name` was removed 2026-08-16 as a stale copy). The behaviour
+        # under test is the same: a signed-in tenant gets their plan flagged on the page.
         with patch("sigzenbi_client.utils.resolve_bi_user",
                    return_value=("SID", bi_user) if bi_user else (None, None)), \
              patch("frappe.db.get_single_value", side_effect=_gsv), \
              patch("frappe.sessions.get_csrf_token", return_value="tok"), \
+             patch("sigzenbi_client.www.client_dashboard._fetch_subscription_state",
+                   return_value={"plan": plan}), \
              patch("requests.get", side_effect=Exception("no network in unit test")):
             ctx = frappe._dict()
             client_plans.get_context(ctx)
         return ctx
+
+    def test_central_outage_still_renders_the_page(self):
+        """The plan lookup must never take the page down -- it degrades to "no plan flagged"."""
+        with patch("sigzenbi_client.utils.resolve_bi_user", return_value=("SID", "owner@x.com")), \
+             patch("frappe.db.get_single_value", side_effect=_gsv), \
+             patch("frappe.sessions.get_csrf_token", return_value="tok"), \
+             patch("sigzenbi_client.www.client_dashboard._fetch_subscription_state",
+                   side_effect=Exception("central down")), \
+             patch("requests.get", side_effect=Exception("no network in unit test")):
+            ctx = frappe._dict()
+            client_plans.get_context(ctx)          # must not raise
+        self.assertEqual(ctx.current_plan_name, "")
 
     def test_logged_in_viewer_flagged(self):
         ctx = self._run("owner@x.com")

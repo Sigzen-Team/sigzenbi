@@ -210,12 +210,25 @@ def login(usr=None, pwd=None, **kwargs):
 
 @frappe.whitelist(allow_guest=True)
 def logout():
-    # Clear all BI session cookies only — do NOT call frappe.local.login_manager.logout()
-    # because that destroys the Frappe native session and logs the user out of the
-    # client Frappe site too, which is a separate concern from the BI dashboard session.
+    # Clear the BI session cookies...
     frappe.local.cookie_manager.delete_cookie("client_session_user")
     frappe.local.cookie_manager.delete_cookie("full_name")
     frappe.local.cookie_manager.delete_cookie("central_sid")
+
+    # ...and END THE ERP SESSION TOO. This used to be deliberately skipped, on the reasoning
+    # that the ERP login is "a separate concern". resolve_bi_user makes that untrue: a live
+    # ERP session auto-SSOs the visitor straight back into BI on the very next page load, so
+    # clearing cookies alone is a Log out button that does not log out -- exactly what a
+    # shared machine must not have. Since SPEC 3.9 every member IS an ERPNext user, so this
+    # is the normal path, not an edge case.
+    # ponytail: if signing out of BI should ever LEAVE the ERP session alone, the answer is
+    # not to skip this -- it is to stop auto-SSO from re-admitting, e.g. a short-lived
+    # "bi_signed_out" cookie that resolve_bi_user honours.
+    try:
+        if frappe.session.user and frappe.session.user != "Guest":
+            frappe.local.login_manager.logout()
+    except Exception as e:
+        frappe.log_error(title="client_login.logout", message=f"ERP session logout failed: {e}")
     frappe.local.response["message"] = {
         "status": "success",
         "message": _("Logged out successfully")

@@ -197,7 +197,7 @@ def get_context(context):
     context.user_name = frappe.db.get_value("User", user, "full_name") or user
 
     # Fetch Subscription Plan from settings
-    context.subscription_plan = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_plan_name') or 'Active Plan'
+    context.subscription_plan = 'Active Plan'  # local mirror removed 2026-08-16; Central owns this and the page fetches it live
 
     # Get central details
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
@@ -239,19 +239,38 @@ def get_context(context):
         context.plans = fetch_active_plans(base_url)
         with open(frappe.get_app_path("sigzenbi_client", "www", "paywall.html"), encoding="utf-8") as _pf:
             _paywall_src = _pf.read()
-        context.central_html = frappe.render_template(_paywall_src, {"plans": context.plans})
+        context.central_html = frappe.render_template(_paywall_src, {"plans": context.plans,
+				 "was_trial": bool(state.get("is_trial", True))})
         return context
 
     # The client site has no Client User doctype, so the "Superset login" card gate is
     # fetched from Central with the sid (mirrors team.py's server-to-server resolve).
     # Cosmetic only (the endpoints are self-safe); fail-closed to 0.
     context.can_manage_superset_login = 0
+    # Analyst-only, and a SEPARATE question from can_manage_superset_login (which also gates the
+    # Team/Billing nav): this one decides whether the Analytics block -- the one-click hand-off
+    # button and the credential card -- renders at all. Both flags come back on one call because
+    # they are about the same session and would otherwise be two things to keep in step.
+    context.analytics_login = 0
+    context.analytics_entry_url = ""
     if base_url and central_sid:
         _url = (f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials"
                 f".can_manage_superset_login")
         _r = central_get_with_sid(_url, central_sid)
         if _r is not None and _r.ok:
-            context.can_manage_superset_login = (_r.json().get("message") or {}).get("can_manage", 0)
+            _flags = (_r.json().get("message") or {})
+            context.can_manage_superset_login = _flags.get("can_manage", 0)
+            context.analytics_login = _flags.get("analytics_login", 0)
+
+    if context.analytics_login:
+        # THE SEAMLESS WAY IN, and the reason it is a CLIENT url. This box holds the person's
+        # Central session, so it can obtain a one-use hand-off token server-to-server and redirect
+        # the browser straight to the analytics domain. The customer's browser therefore only ever
+        # sees two hosts -- this one and analytics -- which is the founder rule that retired OAuth
+        # SSO: authorization-code flow REQUIRES the browser to visit the identity provider, so
+        # every login walked the customer through Central. Never point this at Central.
+        context.analytics_entry_url = (
+            "/api/method/sigzenbi_client.API.analytics_handoff.open_analytics")
 
     # Pass proxy endpoints to pre-rendered HTML
     context.api_get_superset_token_url = "sigzenbi_client.API.dashboard_api.get_superset_token"
