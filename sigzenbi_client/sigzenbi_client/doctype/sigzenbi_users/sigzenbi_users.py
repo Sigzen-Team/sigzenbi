@@ -16,11 +16,10 @@ class SigzenBIUsers(Document):
         if base_url and not base_url.endswith("/"):
             base_url += "/"
 
-        admin_user_name = frappe.db.get_value(
-            "SigzenBI Users",
-            {"role": "Admin"},
-            "user_name"
-        )
+        # Always None. This looked up a user whose `role` == "Admin", but every writer set
+        # `role` to the user's own email, so it never matched once. Kept as a payload key
+        # (frozen wire format) with an honest value instead of a query that cannot succeed.
+        admin_user_name = None
 
         # Note: Hardcoded URL should be configurable (e.g., stored in settings) in production
         url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
@@ -31,7 +30,8 @@ class SigzenBIUsers(Document):
                 "user_name": self.user_name,
                 "full_name": self.full_name if " " in (self.full_name or "").strip() else f"{(self.full_name or '')} .",
                 "user_id": self.user_id,
-                "role": self.role,
+                # field removed 2026-08-16; key kept for the frozen wire format
+                "role": None,
                 "client_user": admin_user_name,
             }
         }
@@ -42,7 +42,6 @@ class SigzenBIUsers(Document):
             
             if response.get("status") == "error":
                 frappe.msgprint(response.get("message"))
-            sync_role(self.user_name)  
         except Exception as e:
             frappe.log_error(title="SigzenBI User Sync Failed", message=str(e))
 
@@ -57,33 +56,16 @@ class SigzenBIUsers(Document):
         if self.user_id and frappe.db.exists("SigzenBI Users", {"user_id": self.user_id}):
             frappe.throw(f"A user with email '{self.user_id}' is already registered.")
 
-        current_user_count = frappe.db.count("SigzenBI Users")
-        if settings.max_users and current_user_count >= settings.max_users:
-            frappe.throw(
-                f"User limit reached. Maximum allowed users on your plan: {settings.max_users}. "
-                "Please upgrade your subscription to add more users."
-            )
+        # SEATS ARE ENFORCED ON CENTRAL (seat model + enforce_caps + assert_can_grant).
+        # The local cap that stood here was gated on a settings value of 0, so it could never
+        # fire -- a duplicate cap that had never once rejected anybody. Removed with the
+        # field on 2026-08-16.
 
     def after_insert(self):
         """Update user count and sync with central server after insertion."""
         settings = frappe.get_single("SigzenBI Subscription Settings")
-        settings.current_users = frappe.db.count("SigzenBI Users")
         settings.save(ignore_permissions=True)
-        if not frappe.db.exists("Client User Role", self.user_name):
-            client_name = settings.client_name
-            client_prefix = client_name.strip().replace(" ", "_") if client_name else "default_client"
-            default_role = f"{client_prefix}_Default"
-            if not frappe.db.exists("SigzenBI Role Client", default_role):
-                default_role = frappe.db.get_value("SigzenBI Role Client", {"name": ["like", "%_Default"]}, "name") or "Default"
-
-            doc = frappe.get_doc({
-                "doctype": "Client User Role",
-                "user": self.user_name,
-                "roles": [{"role": default_role}]  
-            })
-            doc.insert(ignore_permissions=True)
         self.sync_with_central_server(action="create")
-        frappe.db.set_value("SigzenBI Users", self.user_name, "role", self.user_name)
         self.reload()
     
     def before_save(self):
@@ -93,42 +75,27 @@ class SigzenBIUsers(Document):
         if not old:
             return  # This is a new document, let on_insert handle it
 
-        fields_to_track = ["full_name", "user_id", "role", "password"]
+        fields_to_track = ["full_name", "user_id", "password"]
         changed = any(getattr(old, field) != getattr(self, field) for field in fields_to_track)
 
         if changed:
             self.sync_with_central_server(action="update")
 
     
-    def before_delete(self):
-        self.role = None
-        # self.save(ignore_permissions=True)
-        client_role_doc = frappe.get_all(
-            "Client User Role",
-            filters={"user_name": self.user_name},
-            fields=["name"]
-        )
-        if client_role_doc:
-            frappe.delete_doc("Client User Role", client_role_doc[0].name)
-        else:
-            frappe.log_error(title="Deletion Warning", message=f"No Client User Role found for user_name: {self.user_name}")
-        
-        
     def on_trash(self):
         """Sync deletion with central server and update user count."""
         # Save important fields BEFORE the document is gone
         user_name = self.user_name
         full_name = self.full_name
         user_id = self.user_id
-        role = self.role
+        role = None    # field removed 2026-08-16
 
         settings = frappe.get_single("SigzenBI Subscription Settings")
 
-        admin_user_name = frappe.db.get_value(
-            "SigzenBI Users",
-            {"role": "Admin"},
-            "user_name"
-        )
+        # Always None. This looked up a user whose `role` == "Admin", but every writer set
+        # `role` to the user's own email, so it never matched once. Kept as a payload key
+        # (frozen wire format) with an honest value instead of a query that cannot succeed.
+        admin_user_name = None
                 
         payload = {
             "action": "delete",
@@ -149,38 +116,9 @@ class SigzenBIUsers(Document):
             url = f"{base_url}api/method/sigzenbi_central.API.user_sync.sync_client_user"
             from sigzenbi_client.utils import call_central_api
             call_central_api(url, payload=payload, method="POST", timeout=10)
-            # frappe.delete_doc("Client User Role", user_name)
-            frappe.db.sql("DELETE FROM `tabClient User Role` WHERE name = %s", (user_name))
-            frappe.db.sql("DELETE FROM `tabBI Role Client` WHERE parent = %s", (user_name))
-            # sync_role(self.user_name)
         except Exception as e:
             frappe.log_error(title="SigzenBI User Sync Failed on Deletion", message=str(e))
 
         # Now update user count (subtract 1)
-        settings.current_users = frappe.db.count("SigzenBI Users") - 1
         settings.save(ignore_permissions=True)
-        
-def sync_role(user_name):
-    base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link')
-    if base_url and not base_url.endswith("/"):
-        base_url += "/"
-    roles = [role.role for role in frappe.get_all('BI Role Client', filters={'parent': user_name}, fields=['role']) if role.role]
-    client_name = frappe.get_single("SigzenBI Subscription Settings").client_name
-    if client_name:
-        client_name = client_name.strip()
-
-    payload = {
-        "user": user_name,
-        "client_name": client_name,
-        "roles": roles,
-        "action": "add/update"
-    }
-    url = f"{base_url}api/method/sigzenbi_central.API.sync_user_role.update_user_roles"
-    try:
-        from sigzenbi_client.utils import call_central_api
-        result = call_central_api(url, payload=payload, method="POST")
-        if result.get("status") == "error":
-            frappe.throw(f"API error: {result.get('message')}")
-    except Exception as e:
-        frappe.throw(f"Error contacting central server: {str(e)}")
         

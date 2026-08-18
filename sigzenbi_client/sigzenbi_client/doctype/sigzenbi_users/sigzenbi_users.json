@@ -11,7 +11,6 @@
   "full_name",
   "user_id",
   "column_break_egaz",
-  "role",
   "password"
  ],
  "fields": [
@@ -31,16 +30,6 @@
    "read_only": 1,
    "reqd": 1,
    "unique": 1
-  },
-  {
-   "description": "For SigzenBI",
-   "fieldname": "role",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_preview": 1,
-   "in_standard_filter": 1,
-   "label": "Role",
-   "options": "Client User Role"
   },
   {
    "fieldname": "user_name",
@@ -82,8 +71,8 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
-   "delete": 1,
+   "create": 0,
+   "delete": 0,
    "email": 1,
    "export": 1,
    "print": 1,

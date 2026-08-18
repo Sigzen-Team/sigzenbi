@@ -1,9 +1,9 @@
 [project]
 name = "sigzenbi_client"
 authors = [
-    { name = "Parin Dave", email = "parindave15920041@gmail.com"}
+    { name = "SigzenBI", email = "info@sigzenbi.com" }
 ]
-description = "It's an client side manager for SigzenBI"
+description = "Dashboards and plain-English answers from your ERPNext data"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]

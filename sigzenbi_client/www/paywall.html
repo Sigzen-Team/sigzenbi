@@ -46,6 +46,7 @@
   .plan h3{margin:0 0 .5rem;font-size:1.15rem;color:var(--ink-deep)}
   .plan .price{font-size:2rem;font-weight:700;color:var(--ink-deep);line-height:1;
        font-variant-numeric:tabular-nums}
+  .plan .price .from{font-size:.85rem;font-weight:600;color:var(--muted);vertical-align:.6em;margin-right:2px}
   .plan .price .cur{font-size:1.1rem;font-weight:600;vertical-align:.35em;margin-right:1px}
   .plan .interval{color:var(--muted);font-size:.9rem;margin:.35rem 0 1.5rem}
   .plan .cta{margin-top:auto;display:inline-flex;align-items:center;justify-content:center;
@@ -62,16 +63,25 @@
 </header>
 <main>
   <div class="hero">
+    {%- if was_trial is defined and not was_trial %}
+    <span class="pill">Subscription expired</span>
+    <h1>Your subscription has expired</h1>
+    <p>Your dashboards and data are safely saved and will be restored as soon as your
+       subscription is renewed. Billing and Team stay available so you can complete payment.</p>
+    {%- else %}
     <span class="pill">Trial ended</span>
     <h1>Your free trial has ended</h1>
     <p>Your dashboards and data are safely saved and will be restored the moment you choose a plan.</p>
+    {%- endif %}
   </div>
   <div class="plans">
     {% for plan in plans or [] %}
       <div class="plan">
         <h3>{{ plan.name }}</h3>
-        <div class="price"><span class="cur">&#8377;</span>{{ plan.cost }}</div>
-        <div class="interval">per {{ (plan.billing_interval or "month")|lower }}</div>
+        <!-- Whole rupees with thousands separators. {{ plan.cost }} is a Float, so this
+             rendered the price of the product as "1500.0" / "12999.0" (2026-08-07). -->
+        <div class="price"><span class="from">from</span> <span class="cur">&#8377;</span>{{ "{:,.0f}".format(plan.cost|float) }}</div>
+        <div class="interval">per {{ (plan.billing_interval or "month")|lower }} &middot; final price depends on how many people you add</div>
         {% if (plan.cost|float) == 0 %}
           <a class="cta" href="/client_billing">Choose {{ plan.name }}</a>
         {% else %}

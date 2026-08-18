@@ -148,6 +148,15 @@ def set_team_admin(user, enabled):
 
 
 @frappe.whitelist(allow_guest=True)
+def transfer_ownership(user):
+    # Hands the org-owner flag to another roster member. Central gates this on the CALLER
+    # being the current owner -- not on manage_team -- so a team admin cannot seize the
+    # account. We forward only, as everywhere here.
+    return _forward("sigzenbi_central.API.team.transfer_ownership.transfer_ownership",
+                    {"user": user})
+
+
+@frappe.whitelist(allow_guest=True)
 def get_my_superset_password(member_email=None):
     return _forward("sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
                     {"member_email": member_email})
@@ -157,3 +166,111 @@ def get_my_superset_password(member_email=None):
 def reset_superset_password(mode="random", new_password=None, member_email=None):
     return _forward("sigzenbi_central.API.team.superset_credentials.reset_superset_password",
                     {"mode": mode, "new_password": new_password, "member_email": member_email})
+
+
+@frappe.whitelist(allow_guest=True)
+def list_erp_users():
+    """Feeds the team page ERPNext-user PICKER (SPEC-member-row-security 3.9).
+
+    Without this proxy the page called Central method name against the CLIENT origin --
+    where sigzenbi_central is not installed -- so every real tenant got a 417 and the page
+    silently fell back to the free-text email box: the picker never rendered in production.
+    An affordance only; invite_user require_erp_user guard is the enforcement."""
+    return _forward("sigzenbi_central.scripts.report_unlinked_members.list_erp_users", {})
+
+
+# ---- Plan changes in both directions (2026-08-07) --------------------------------------
+# An upgrade already had a path (client_dashboard.upgrade_subscription -> checkout); these three
+# carry the DOWNGRADE side, which charges nothing and lands at the end of the paid term. Same
+# sid-forwarding proxy as the team calls -- Central re-derives the tenant and the owner check
+# from the session, so nothing here is trusted.
+
+
+@frappe.whitelist(allow_guest=True)
+def preview_plan_change(analysts=0, viewers=0, ai_licences=0, plan=None, interval=None):
+    return _forward("sigzenbi_central.API.billing.plan_change.preview_plan_change",
+                    {"analysts": analysts, "viewers": viewers, "ai_licences": ai_licences,
+                     "plan": plan, "interval": interval})
+
+
+@frappe.whitelist(allow_guest=True)
+def schedule_downgrade(analysts=0, viewers=0, ai_licences=0, plan=None, interval=None):
+    return _forward("sigzenbi_central.API.billing.plan_change.schedule_downgrade",
+                    {"analysts": analysts, "viewers": viewers, "ai_licences": ai_licences,
+                     "plan": plan, "interval": interval})
+
+
+@frappe.whitelist(allow_guest=True)
+def cancel_scheduled_change():
+    return _forward("sigzenbi_central.API.billing.plan_change.cancel_scheduled_change", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_scheduled_change():
+    """Read-only. Owner-gating and tenant resolution happen on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.plan_change.get_scheduled_change", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_subscription_payments(limit=20):
+    """Read-only plan-payment history. Owner-gated on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.subscription_purchase.get_subscription_payments",
+                    {"limit": limit})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_saved_card():
+    """Display metadata for the tenant's saved card. Never a token, never a PAN."""
+    return _forward("sigzenbi_central.API.billing.payment_method.get_saved_card", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def forget_saved_card():
+    return _forward("sigzenbi_central.API.billing.payment_method.forget_saved_card", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_billing_identity():
+    """The tenant's own invoicing details. Owner-gated on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.invoicing.get_billing_identity", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def save_billing_identity(gstin=None, state=None, billing_name=None,
+                          billing_address=None, country=None):
+    """Record the buyer's invoicing details. Validated on Central; the tenant is derived
+    there from the forwarded session, never from these arguments."""
+    return _forward("sigzenbi_central.API.billing.invoicing.save_billing_identity",
+                    {"gstin": gstin, "state": state, "billing_name": billing_name,
+                     "billing_address": billing_address, "country": country})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_seat_usage():
+    """Purchased vs assigned seats. Owner-gated on Central, from the forwarded session."""
+    return _forward("sigzenbi_central.API.billing.subscription_purchase.get_seat_usage", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def download_subscription_invoice(purchase_name=None):
+    """The tenant's own GST invoice as base64 JSON.
+
+    Base64 rather than a binary pass-through precisely BECAUSE of this proxy: _forward
+    JSON-parses what Central returns, and a raw filecontent body would not survive it.
+    Ownership is proven on Central from the forwarded session, never from this argument.
+    """
+    return _forward("sigzenbi_central.API.billing.invoicing.download_subscription_invoice",
+                    {"purchase_name": purchase_name})
+
+
+@frappe.whitelist(allow_guest=True)
+def download_credit_pack_invoice(purchase_name=None):
+    """Same document, for an AI credit pack payment.
+
+    A SEPARATE forward rather than a `source` argument on the one above: the doctype a
+    purchase name is resolved in must never be caller-controlled, or a tenant could have
+    ownership checked against the wrong field. Ownership is still proven on Central from the
+    forwarded session, never from this argument.
+    """
+    return _forward("sigzenbi_central.API.billing.invoicing.download_credit_pack_invoice",
+                    {"purchase_name": purchase_name})

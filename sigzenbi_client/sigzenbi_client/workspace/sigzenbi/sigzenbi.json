@@ -52,46 +52,6 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Client User Role",
-   "link_count": 0,
-   "link_to": "Client User Role",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "SigzenBI Role Client",
-   "link_count": 0,
-   "link_to": "SigzenBI Role Client",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "SigzenBI Permission Client",
-   "link_count": 0,
-   "link_to": "SigzenBI Permission Client",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "SigzenBI Subscription Plan",
-   "link_count": 0,
-   "link_to": "SigzenBI Subscription Plan",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
  "modified": "2026-07-13 20:06:22.657115",

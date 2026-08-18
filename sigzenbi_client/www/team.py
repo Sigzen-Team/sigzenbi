@@ -82,12 +82,24 @@ def get_context(context):
     central_html = central_html.replace(
         "sigzenbi_central.API.team.set_seat_type.set_team_admin",
         "sigzenbi_client.API.team_proxy.set_team_admin")
+    # Ownership transfer (2026-08-14). Without this rewrite the page calls a
+    # sigzenbi_central method against the CLIENT origin and gets "App sigzenbi_central is
+    # not installed" inside a 200 -- the failure mode a missing map entry always has.
+    central_html = central_html.replace(
+        "sigzenbi_central.API.team.transfer_ownership.transfer_ownership",
+        "sigzenbi_client.API.team_proxy.transfer_ownership")
     central_html = central_html.replace(
         "sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
         "sigzenbi_client.API.team_proxy.get_my_superset_password")
     central_html = central_html.replace(
         "sigzenbi_central.API.team.superset_credentials.reset_superset_password",
         "sigzenbi_client.API.team_proxy.reset_superset_password")
+    # The ERPNext-user picker (SPEC 3.9). Missing here, the page called a
+    # sigzenbi_central method against the CLIENT origin and got "App sigzenbi_central is
+    # not installed" -- so the picker silently fell back to free text on every tenant.
+    central_html = central_html.replace(
+        "sigzenbi_central.scripts.report_unlinked_members.list_erp_users",
+        "sigzenbi_client.API.team_proxy.list_erp_users")
 
     # Logout must clear only the BI cookies, not the native client Frappe session.
     central_html = central_html.replace(

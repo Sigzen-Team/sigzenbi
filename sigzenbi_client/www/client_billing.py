@@ -25,10 +25,9 @@ def get_context(context):
     context.user_name = frappe.db.get_value("User", client_user, "full_name") or client_user
     context.csrf_token = frappe.sessions.get_csrf_token()
 
-    context.subscription_plan = frappe.db.get_single_value(
-        "SigzenBI Subscription Settings", "subscription_plan_name") or "Active Plan"
-    end_date = frappe.db.get_single_value("SigzenBI Subscription Settings", "subscription_end_date")
-    context.subscription_end_date = str(end_date) if end_date else None
+    context.subscription_plan = "Active Plan"  # local mirror removed 2026-08-16; Central owns this and the page fetches it live
+    # Same story: the real term comes from Central's live state below.
+    context.subscription_end_date = None
 
     base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
 
@@ -53,15 +52,35 @@ def get_context(context):
 
     # Nav gate -- same server-to-server resolve as client_dashboard.py/team.py.
     context.can_manage_superset_login = 0
+    # `analytics_login` rides on the SAME call and was being thrown away here (2026-08-14). The
+    # endpoint has always returned both flags together, deliberately, "because they are about the
+    # same session and would otherwise be two things to keep in step" -- but this page read only
+    # can_manage, so the account dropdown on Plan & billing could never offer Open Analytics. An
+    # analyst opening the menu from this page saw Username/Email/Plan and nothing else, and
+    # concluded the product had no analytics entry point. Read both; they cost one request.
+    context.analytics_login = 0
+    context.analytics_entry_url = ""
     if base_url and central_sid:
         try:
-            _g = requests.get(
+            from sigzenbi_client.www.client_dashboard import central_get_with_sid
+
+            _g = central_get_with_sid(
                 f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials.can_manage_superset_login",
-                cookies={"sid": central_sid}, timeout=10)
-            if _g.ok:
-                context.can_manage_superset_login = (_g.json().get("message") or {}).get("can_manage", 0)
+                central_sid, timeout=10)
+            if _g is not None and _g.ok:
+                _flags = (_g.json().get("message") or {})
+                context.can_manage_superset_login = _flags.get("can_manage", 0)
+                context.analytics_login = _flags.get("analytics_login", 0)
         except Exception:
             pass
+
+    if context.analytics_login:
+        # A CLIENT-box url, never Central's: this box holds the person's Central session, so it
+        # fetches the one-use hand-off token server-to-server and redirects the browser straight
+        # to the analytics domain. Same rule as client_dashboard.py -- the customer's browser must
+        # never touch Central. Do not "simplify" this to the Superset base url.
+        context.analytics_entry_url = (
+            "/api/method/sigzenbi_client.API.analytics_handoff.open_analytics")
 
     # is_owner: the REAL, per-browsing-user identity check -- central_sid is THIS visitor's
     # own Central session, unlike the tenant api_key that every ai_proxy call authenticates
@@ -89,18 +108,35 @@ def get_context(context):
     # table empty rather than crashing, exactly like a tenant that has spent nothing.
     context.spend_by_window = []
     context.spend_total = 0
+    # MIRRORED PAGE: the lapse/retention copy in Central's markup reads `retention_days`,
+    # which Central's own controller sets and this one must too -- otherwise the template
+    # takes its |default and the number drifts the day the setting changes. Travels on the
+    # get_ai_billing_status response below; this is the pre-owner-check default.
+    context.retention_days = 60
+    context.byok_enabled = 0
     if base_url and central_sid:
         try:
-            _o = requests.get(
+            # RE-VOUCHING probe (2026-08-13). A bare GET here reported an EXPIRED Central
+            # session as "you are not the owner" -- the owner saw "Plan & billing is managed
+            # by your account owner" until they visited the dashboard, which re-vouches and
+            # refreshes the cookie. Same helper, same reason, as the 2026-08-02 sidebar fix.
+            from sigzenbi_client.www.client_dashboard import central_get_with_sid
+
+            _o = central_get_with_sid(
                 f"{base_url}api/method/sigzenbi_central.API.billing.byok_api.get_ai_billing_status",
-                cookies={"sid": central_sid}, timeout=20)
-            if _o.ok:
+                central_sid, timeout=20)
+            if _o is None:
+                # Could not reach Central at all -- ownership UNKNOWN, never a denial.
+                context.owner_check_failed = 1
+            elif _o.ok:
                 context.is_owner = 1
                 context.billing_status = _o.json().get("message") or {}
                 # Same round trip, no extra call -- get_ai_billing_status carries the spend
                 # report (it is owner-gated there, and this branch IS the owner).
                 context.spend_by_window = context.billing_status.get("spend_by_window") or []
                 context.spend_total = context.billing_status.get("spend_total") or 0
+                context.retention_days = context.billing_status.get("retention_days") or 60
+                context.byok_enabled = 1 if context.billing_status.get("byok_enabled") else 0
             elif _o.status_code not in (401, 403):
                 context.owner_check_failed = 1
         except Exception:
@@ -118,6 +154,20 @@ def get_context(context):
     context.current_viewer_seats = 2
     context.current_ai_licences = 0
     context.current_billing_interval = "Month"
+    # THE BILLING FORM SHAPE, decided on Central and carried on the SAME round trip below.
+    # This page is MIRRORED -- Central owns the markup, this site renders it with THIS
+    # context -- so Central's own is_flat/can_renew do not exist here unless we set them.
+    # Without these the flat configurator (one "BI users" stepper, no tier picker, no
+    # "One included.") rendered only on a direct Central visit and never on the customer
+    # path, which is the only path a customer has. Falsy defaults keep an older Central,
+    # which sends neither key, on the configurator form exactly as before.
+    context.is_flat = False
+    context.can_renew = False
+    # PLAN-CARD STATE. The card now branches on status (Active vs lapsed) and on how many days
+    # of trial remain; an unset subscription_status would render every tenant as current, and
+    # an unset trial_days_left would drop the trial countdown entirely.
+    context.subscription_status = None
+    context.trial_days_left = None
     try:
         from sigzenbi_client.www.client_dashboard import _fetch_subscription_state
         state = _fetch_subscription_state(client_user) or {}
@@ -127,6 +177,29 @@ def get_context(context):
         context.current_viewer_seats = int(state.get("viewer_seats") or 0) or 2
         context.current_ai_licences = int(state.get("ai_licences") or 0)
         context.current_billing_interval = state.get("billing_interval") or "Month"
+        context.is_flat = bool(state.get("is_flat"))
+        context.can_renew = bool(state.get("can_renew"))
+        context.subscription_status = state.get("status")
+        # Prefer Central's plan name over the local Subscription Settings mirror, which holds a
+        # display string ("Active Plan") rather than a real plan row -- the card's is_trial test
+        # is `subscription_plan and not can_renew`, so a placeholder there is fine, but a real
+        # name keeps the paid-state heading honest.
+        if state.get("plan"):
+            context.subscription_plan = state["plan"]
+        if state.get("end_date"):
+            context.subscription_end_date = str(state["end_date"])
+            try:
+                context.trial_days_left = max(
+                    0, (frappe.utils.getdate(state["end_date"]) - frappe.utils.getdate()).days)
+            except Exception:
+                context.trial_days_left = None
+        # THE FOLD IS GONE (founder repricing 2026-08-12). Flat used to pool analyst+viewer
+        # into one headcount posted entirely as `analysts`, which was only correct while the
+        # two rates were identical. Analyst is Rs 1,200 and Viewer Rs 1,000 now, so folding
+        # would bill every viewer at the analyst rate. Flat includes no seats, so a real 0
+        # viewers is a legitimate configuration and must not be floored to 2.
+        if context.is_flat:
+            context.current_viewer_seats = int(state.get("viewer_seats") or 0)
     except Exception:
         frappe.log_error(title="client_billing", message="seat prefill failed; showing floor defaults")
 
@@ -161,6 +234,20 @@ def get_context(context):
     rewrites = {
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
         "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",
+        # Plan changes in the DOWN direction (2026-08-07). An upgrade keeps going through
+        # checkout above; these three charge nothing and land at the end of the paid term.
+        "sigzenbi_central.API.billing.plan_change.preview_plan_change": "sigzenbi_client.API.team_proxy.preview_plan_change",
+        "sigzenbi_central.API.billing.plan_change.schedule_downgrade": "sigzenbi_client.API.team_proxy.schedule_downgrade",
+        "sigzenbi_central.API.billing.plan_change.cancel_scheduled_change": "sigzenbi_client.API.team_proxy.cancel_scheduled_change",
+        "sigzenbi_central.API.billing.plan_change.get_scheduled_change": "sigzenbi_client.API.team_proxy.get_scheduled_change",
+        "sigzenbi_central.API.billing.subscription_purchase.get_subscription_payments": "sigzenbi_client.API.team_proxy.get_subscription_payments",
+        "sigzenbi_central.API.billing.invoicing.download_subscription_invoice": "sigzenbi_client.API.team_proxy.download_subscription_invoice",
+        "sigzenbi_central.API.billing.invoicing.download_credit_pack_invoice": "sigzenbi_client.API.team_proxy.download_credit_pack_invoice",
+        "sigzenbi_central.API.billing.subscription_purchase.get_seat_usage": "sigzenbi_client.API.team_proxy.get_seat_usage",
+        "sigzenbi_central.API.billing.invoicing.get_billing_identity": "sigzenbi_client.API.team_proxy.get_billing_identity",
+        "sigzenbi_central.API.billing.payment_method.get_saved_card": "sigzenbi_client.API.team_proxy.get_saved_card",
+        "sigzenbi_central.API.billing.payment_method.forget_saved_card": "sigzenbi_client.API.team_proxy.forget_saved_card",
+        "sigzenbi_central.API.billing.invoicing.save_billing_identity": "sigzenbi_client.API.team_proxy.save_billing_identity",
     }
     from sigzenbi_client.utils import route_ai_methods_to_proxy
     central_html = route_ai_methods_to_proxy(central_html)

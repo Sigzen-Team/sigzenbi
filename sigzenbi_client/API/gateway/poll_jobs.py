@@ -1,3 +1,5 @@
+import re
+
 import frappe
 import requests
 
@@ -84,6 +86,48 @@ def _fetch_active_client_names():
         return set(stale) if stale is not None else None
 
 
+
+def _acquire_singleton_lock(client_name):
+    """Take an EXCLUSIVE, process-lifetime lock for this client_name, or return None.
+
+    THE REDIS HEARTBEAT IS NOT A MUTEX, and treating it as one is what put four loops per box
+    on this bench (measured 2026-08-17, staggered across deploy days).
+
+      * `bench clear-cache` -> `frappe.clear_cache()` takes the no-arg branch of
+        cache_manager.clear_global_cache, literally "Delete ALL keys associated with this site":
+        every key prefixed `{db_name}|`, which is exactly the namespace `frappe.cache()` writes
+        into. This app registers no `persistent_cache_keys` hook, so EVERY DEPLOY erases a live,
+        healthy loop's heartbeat and `check_and_start_polling_loop` spawns a duplicate beside it.
+      * Once two loops share the key they BOTH refresh it, so the watchdog sees "alive" forever
+        and there is no culling path -- the population only ratchets up. `_reenqueue` starts the
+        child with `start_new_session=True`, so it also survives `bench restart`.
+      * A single gateway query slower than the 90s TTL forks a duplicate with no deploy involved.
+
+    An flock has the two properties the heartbeat lacks: it cannot be flushed by anything in
+    userspace, and the kernel releases it when the holder dies -- so a stale lock is impossible
+    and a duplicate is refused at birth. The heartbeat stays as-is: it is still a fine liveness
+    HINT for the watchdog, it just no longer has to be correct for safety. A spurious respawn now
+    costs one process that exits immediately instead of a permanent extra poller.
+
+    Keep the returned handle referenced for as long as the loop runs; closing it drops the lock.
+    """
+    import fcntl
+    import os
+    import tempfile
+
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", client_name or "")
+    path = os.path.join(tempfile.gettempdir(), f"sigzen_poll_{frappe.local.site}_{safe}.lock")
+    handle = open(path, "w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    handle.write(str(os.getpid()))
+    handle.flush()
+    return handle
+
+
 def poll_and_execute_jobs(client_name=None):
     """
     Persistent daemon loop running as a standalone python process.
@@ -96,6 +140,16 @@ def poll_and_execute_jobs(client_name=None):
     if frappe.flags.in_background_job:
         # Delegate execution to standalone background process to free supervisor worker slot
         _reenqueue(client_name=client_name)
+        return
+
+    # ONE LOOP PER client_name, enforced by the OS. See _acquire_singleton_lock: the Redis
+    # heartbeat below is a liveness hint, not a mutex, and every deploy used to erase it and
+    # fork a permanent duplicate. `_lock` must stay referenced for the life of the loop.
+    _lock = _acquire_singleton_lock(client_name)
+    if _lock is None:
+        frappe.logger("sigzen_gateway").info(
+            f"poll loop for '{client_name}' already running elsewhere; this process is exiting."
+        )
         return
 
     import time
@@ -419,7 +473,27 @@ def check_and_start_polling_loop():
         # backoff key's own TTL naturally makes this retry itself hourly.
         backoff_key = f"{NO_CREDENTIAL_BACKOFF_KEY}:{name}"
         if frappe.cache().get_value(backoff_key):
-            continue
+            # ...UNLESS Central has since said this name IS active, in which case the backoff
+            # is STALE and honouring it keeps a PAYING customer's data path dead.
+            #
+            # Live 2026-08-17: Sigzen Demo lapsed, `check_subscription_plan` deactivated its
+            # Client Database Credential, the poll loop saw `no_credential` and exited (by
+            # design), setting this key for NO_CREDENTIAL_BACKOFF_SEC = 3600. The customer then
+            # paid: subscription Active, Client User Active, credential reactivated, guest token
+            # minted fine -- and every chart still failed, because this `continue` refused to
+            # respawn the loop for up to an hour. Measured state at that moment:
+            # backoff=1, heartbeat=None, and Central answering `["Sigzen Demo"]` as active.
+            #
+            # `active` is the AUTHORITATIVE answer and we already have it: `names` was filtered
+            # by it above, so any name reaching this line is one Central considers active. The
+            # only reason to still honour the backoff is not knowing -- i.e. Central was
+            # unreachable and we failed open without filtering (active is None).
+            if active is None:
+                continue
+            frappe.cache().delete_value(backoff_key)
+            frappe.logger("sigzen_gateway").info(
+                f"'{name}' is active on Central again — clearing stale no-credential backoff."
+            )
 
         frappe.logger("sigzen_gateway").info(f"SigzenBI poll loop heartbeat missing for '{name}' — restarting.")
         _reenqueue(client_name=name)

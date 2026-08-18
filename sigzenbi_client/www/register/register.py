@@ -282,16 +282,11 @@ def fetch_client_subscription(**kwargs):
         
         if parsed.get("status") == "success":
             settings = frappe.get_single("SigzenBI Subscription Settings")
-            settings.subscription_plan_name = kwargs.get("subscription_plan") or "Active Plan"
+            # The plan name and term used to be mirrored here too. They were a STALE COPY of
+            # state Central owns -- the billing page fetches the live version and overwrites
+            # them on every render -- so they were removed with the fields on 2026-08-16.
+            # `subscription_status` stays: three setup pages gate on it.
             settings.subscription_status = "Active"
-            # Store the term Central just set. Nothing wrote these before, so
-            # subscription_end_date stayed NULL and client_billing rendered a formatted
-            # None as "Renews / expires 0001-01-01" -- on a trial whose real end date
-            # Central knew exactly.
-            if parsed.get("start_date"):
-                settings.subscription_start_date = parsed["start_date"]
-            if parsed.get("end_date"):
-                settings.subscription_end_date = parsed["end_date"]
             settings.save(ignore_permissions=True)
             frappe.db.commit()
             

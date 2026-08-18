@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import frappe
@@ -156,11 +156,28 @@ def get_db_config():
 def _to_json_safe(val):
     if isinstance(val, (datetime, date)):
         return val.isoformat()
+    if isinstance(val, timedelta):
+        # MySQL TIME columns come back from MySQLdb as timedelta, and json.dumps cannot
+        # encode one. This was not a cosmetic bug: the query SUCCEEDED, then the result
+        # POST to Central raised inside requests' encoder, so the client never submitted
+        # anything and Central sat out its full timeout. `SELECT *` on any doctype with a
+        # Time field (Sales Order among them) looked like "0 rows / hangs" to the customer.
+        # str(timedelta) renders "1 day, 2:00:00" past 24h; TIME is a clock/duration, so
+        # emit [-]HH:MM:SS instead.
+        total = int(val.total_seconds())
+        sign = "-" if total < 0 else ""
+        total = abs(total)
+        return f"{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
     if isinstance(val, Decimal):
         return float(val)
     if isinstance(val, bytes):
         return val.decode("utf-8", errors="replace")
-    return val
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return val
+    # Catch-all, deliberately last. Any type we have not thought of would otherwise raise
+    # in the encoder AFTER a successful query and hang the gateway exactly as timedelta
+    # did. A stringified cell is always better than a query that never returns.
+    return str(val)
 
 
 def _sanitize_rows(rows):

@@ -1,9 +1,9 @@
 app_name = "sigzenbi_client"
 app_title = "SigzenBI Client"
 app_publisher = "SigzenBI"
-app_description = "It\'s an client side manager for SigzenBI"
+app_description = "Dashboards and plain-English answers from your ERPNext data"
 app_email = "info@sigzenbi.com"
-app_license = "gpl-3.0"
+app_license = "mit"
 
 # Apps
 # ------------------
@@ -57,7 +57,7 @@ app_license = "gpl-3.0"
 # ----------
 
 # application home page (will override Website Settings)
-home_page = "login"
+# no home_page hook: it would override the customer site's own website homepage (and Marketplace review forbids base-page overrides). Our hosted boxes pin Website Settings.home_page = "login" as site data instead.
 
 
 # website user home page (by Role)
@@ -85,6 +85,11 @@ home_page = "login"
 
 # before_install = "sigzenbi_client.install.before_install"
 after_install = "sigzenbi_client.after_install.after_install.create_default_permissions_and_roles"
+# ALSO on every migrate. after_install fires once, at first install, so boxes installed before
+# ensure_desktop_icon()/the seeders existed never got them -- which is exactly why the Desk tile
+# was missing while the Workspace was present. The routine is idempotent, so re-running it is
+# free and makes the desk tile + default role self-healing.
+after_migrate = "sigzenbi_client.after_install.after_install.create_default_permissions_and_roles"
 
 # Uninstallation
 # ------------

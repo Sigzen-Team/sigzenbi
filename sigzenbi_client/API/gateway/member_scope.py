@@ -329,7 +329,24 @@ def _permitted_fields(doctype, member_email, parent):
 	if meta.istable:
 		fields.extend(child_table_fields)
 	fields.extend(readable)
-	return list(dict.fromkeys(fields))
+	fields = list(dict.fromkeys(fields))
+
+	# EVERY NAME HERE MUST BE A REAL COLUMN. This list is not advisory -- the Superset
+	# row-security processor expands `SELECT *` into exactly these names, so one name that
+	# Meta knows about but the physical table does not have turns a working query into
+	# `Unknown column '...' in 'SELECT'`. Found live 2026-08-12: `ecommerce_supply_type` is in
+	# tabSales Order's Meta on box2 but not in the table, so every `SELECT *` errored.
+	# `optional_fields` was already filtered this way three lines up; `readable` was not, and
+	# `get_valid_columns()` is Meta-derived so it cannot see the drift either -- only the
+	# physical table can. Narrowing only: this can drop a name, never add one, and a field with
+	# no column could never have appeared in SQL anyway.
+	try:
+		physical = set(frappe.db.get_table_columns(doctype))
+	except Exception:
+		physical = None  # never fail the whole scope over this; keep the pre-filter list
+	if physical:
+		fields = [f for f in fields if f in physical]
+	return fields or None
 
 
 def _child_permitted_fields(child, member_email, parents):

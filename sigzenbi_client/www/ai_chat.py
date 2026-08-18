@@ -41,10 +41,37 @@ def render_chat(context, kind):
 		from sigzenbi_client.utils import redirect_without_port
 		redirect_without_port("/portal/login")
 
+	# LAPSED -> PAYWALL (founder, 2026-08-13). Both chats are already REFUSED at the API for a
+	# lapsed tenant (chat_api._gate -> entitlements.require_active_subscription); without this
+	# the page still rendered a chat box and only failed on send. Same outcome, worst possible
+	# delivery. Team and Billing stay reachable on purpose -- the customer has to be able to pay.
+	#
+	# ONE gate for BOTH chats: bi_chat.py delegates here with kind="build".
+	# FAIL OPEN on an unreachable Central -- never show a paying customer a paywall because a
+	# health check timed out. This is UX; Central enforces regardless of what renders.
+	try:
+		from sigzenbi_client.www.client_dashboard import _fetch_subscription_state
+
+		_state = _fetch_subscription_state(client_user)
+		if _state is not None and _state.get("status") == "Expired":
+			from sigzenbi_client.utils import fetch_active_plans
+
+			_base = frappe.db.get_single_value(
+				"SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
+			context.plans = fetch_active_plans(_base)
+			with open(frappe.get_app_path("sigzenbi_client", "www", "paywall.html"),
+			          encoding="utf-8") as _pf:
+				context.html_content = frappe.render_template(_pf.read(),
+				                                              {"plans": context.plans,
+				 "was_trial": bool(_state.get("is_trial", True))})
+			return context
+	except Exception:
+		frappe.log_error(title="chat paywall check failed", message=frappe.get_traceback())
+
 	context.user_email = client_user
 	context.user_name = frappe.db.get_value("User", client_user, "full_name") or client_user
 	context.subscription_plan = (
-		frappe.db.get_single_value("SigzenBI Subscription Settings", "subscription_plan_name") or "Active Plan"
+		"Active Plan"  # local mirror removed 2026-08-16; Central owns this and the page fetches it live
 	)
 
 	# Load credit balance and suggestions via proxy API
