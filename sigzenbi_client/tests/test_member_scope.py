@@ -38,7 +38,7 @@ GPFN = "frappe.model.meta.Meta.get_permitted_fieldnames"
 
 # A real, enabled System User on this bench — the child-table and permitted-field paths are
 # deliberately NOT mocked, so they need a genuine identity to compose against.
-MEMBER = "avsar.kk@sigzen.com"
+MEMBER = "analyst@example.com"
 
 
 class MemberScopeTestCase(unittest.TestCase):
@@ -110,7 +110,7 @@ class TestTrustBoundary(MemberScopeTestCase):
 
 
 class TestB1Clause(MemberScopeTestCase):
-	"""SPEC §3.1 — the clause is whatever Frappe itself would apply to this member."""
+	""" — the clause is whatever Frappe itself would apply to this member."""
 
 	def test_unrestricted_member_gets_an_empty_clause_not_deny(self):
 		# "" and DENY are NOT interchangeable: "" means Frappe itself imposes no restriction.
@@ -172,7 +172,7 @@ class TestB1Clause(MemberScopeTestCase):
 		self.assertEqual(frappe.session.user, before)
 
 	def test_member_who_is_not_an_enabled_erpnext_user_denies_every_doctype(self):
-		# SPEC §3.9: access follows the ERP. A deleted/disabled ERPNext user has no permissions
+		#: access follows the ERP. A deleted/disabled ERPNext user has no permissions
 		# to derive, and "no permissions" must never collapse into "unrestricted".
 		client_name, secret = self._creds()
 		with patch(BMC) as bmc:
@@ -206,7 +206,7 @@ class TestB1Clause(MemberScopeTestCase):
 
 
 class TestB2ChildDoctypes(MemberScopeTestCase):
-	"""SPEC §3.5b — build_match_conditions RAISES for a child table, but our datasets join
+	"""b — build_match_conditions RAISES for a child table, but our datasets join
 	child tables, so DENY there would blank legitimate dashboards. A child row is visible iff
 	its parent document is."""
 
@@ -257,7 +257,7 @@ class TestB2ChildDoctypes(MemberScopeTestCase):
 
 
 class TestB3Flattening(MemberScopeTestCase):
-	"""SPEC §3.7 — our own client guard (local_db._SENSITIVE_TABLE_RE) rejects any SQL that
+	""" — our own client guard (local_db._sensitive_table_used) rejects any SQL that
 	touches __Auth / tabUser* / tabSingles. A clause carrying such a subquery would be refused
 	at execution, so it is resolved to literals here or the doctype denies. Business-table
 	subqueries are left live."""
@@ -326,7 +326,7 @@ class TestB3Flattening(MemberScopeTestCase):
 
 
 class TestB4PermittedFields(MemberScopeTestCase):
-	"""SPEC §3.6 — column security travels with the row clause."""
+	""" — column security travels with the row clause."""
 
 	def test_scope_carries_the_members_permitted_fields(self):
 		with patch(BMC, return_value=""):
@@ -404,7 +404,7 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 		frappe.delete_doc("User", email, force=True, ignore_permissions=True, delete_permanently=True)
 		frappe.db.commit()
 
-	# ---- column axis (SPEC §3.6) ----
+	# ---- column axis ----
 
 	def test_a_core_doctype_the_member_has_no_role_on_denies(self):
 		# frappe.model.get_permitted_fields returns EVERY column, with NO user check at all, for
@@ -469,7 +469,7 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 				)
 				self.assertIs(res.get("success"), False, res)
 
-	# ---- flattening (SPEC §3.7) ----
+	# ---- flattening ----
 
 	def test_a_subquery_that_is_not_a_plain_select_is_refused_without_executing(self):
 		# A Permission Query Server Script's output is customer-authored text that reaches this
@@ -498,7 +498,7 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 		self.assertNotIn("tabUser", out)
 		self.assertIn("'Administrator'", out)
 
-	# ---- child doctypes (SPEC §3.5b) ----
+	# ---- child doctypesb) ----
 
 	def test_a_child_used_by_several_parents_is_scoped_per_parenttype_not_denied(self):
 		# 55 of this bench's 413 child doctypes have more than one parent (verified live), and
@@ -563,7 +563,7 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 		self.assertNotIn("supplier_only_note", scope["Portal User"]["fields"])
 
 	def test_a_child_with_no_resolvable_parent_denies(self):
-		# 17 child doctypes on this bench are referenced by no parent at all. SPEC §4.
+		# 17 child doctypes on this bench are referenced by no parent at all.
 		with patch(GPFN, return_value=["user"]), patch("frappe.log_error"):
 			scope = self._scope(["Log Setting User"])
 		self.assertEqual(scope["Log Setting User"]["clause"], DENY)
@@ -607,7 +607,7 @@ class TestRound2AdversarialReview(MemberScopeTestCase):
 
 
 class TestLiveComposition(MemberScopeTestCase):
-	"""SPEC §5 asked for clause composition proven against LIVE Frappe, per mechanism. The first
+	""" asked for clause composition proven against LIVE Frappe, per mechanism. The first
 	round mocked build_match_conditions in 10 of 11 clause tests, so nothing automated proved the
 	one claim the whole module exists for: that a rule we cannot see from Central is honoured."""
 

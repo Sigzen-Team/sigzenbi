@@ -5,8 +5,7 @@ This site hosts many `client_name` identities (see CLAUDE.md — one bench,
 many client_names), but until this module existed, all of them shared a
 single `SigzenBI Subscription Settings` singleton row for Central API
 credentials — any identity's rotation clobbered every other identity's key,
-causing intermittent/persistent 401s (the credential-rotation race documented
-in CLAUDE.md).
+causing intermittent/persistent 401s (the credential-rotation race).
 
 This module is the SOLE reader/writer of the `SigzenBI Client Credential`
 doctype, which stores one row per `client_name`. All credential reads/writes
@@ -138,7 +137,7 @@ def set_gateway_secret(client_name, secret):
     Upsert the per-client_name transport secret this identity's polling agent
     uses to authenticate to Central's gateway endpoints (pending_query,
     submit_query_result, heartbeat). Stored encrypted, one row per client_name
-    — the per-tenant replacement for the shared gateway_shared_secret (C3).
+    — the per-tenant replacement for the shared gateway_shared_secret.
 
     Uses raw frappe.db.exists + set_encrypted_password (no doc.save()) for the
     same concurrency reasons as save_rotated()/upsert_root(). Never logs the secret.

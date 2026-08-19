@@ -1,4 +1,4 @@
-"""PLAN P0.2i: the client's hardcoded Central method paths must survive Central's
+""": the client's hardcoded Central method paths must survive Central's
 API/ai regroup regardless of which box deploys first.
 
 These are server-to-server URLs, not browser rewrites, so P0.5's template router does

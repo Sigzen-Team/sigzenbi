@@ -6,8 +6,8 @@ import frappe
 # (see utils.get_browser_base_url / dashboard_api embed_origin). A self-hosted / white-label
 # deployment overrides these via site_config keys (sigzenbi_central_url / sigzenbi_superset_url)
 # or, post-install, via install_agent.sh --central-url (register_agent.run).
-DEFAULT_CENTRAL_URL = "https://sigzenbi-central.sigzenone.com"
-DEFAULT_SUPERSET_URL = "https://superset.sigzenone.com"
+DEFAULT_CENTRAL_URL = "https://central.sigzen.com"
+DEFAULT_SUPERSET_URL = "https://app.sigzenbi.com"
 
 
 def _central_url():
@@ -16,6 +16,35 @@ def _central_url():
 
 def _superset_url():
     return (frappe.conf.get("sigzenbi_superset_url") or DEFAULT_SUPERSET_URL).rstrip("/")
+
+
+def ensure_readonly_db_user():
+    """Provision the SELECT-only `sigzen_ro` DB user the gateway should run as.
+
+    Wired to BOTH after_install and after_migrate on purpose. `after_install` fires exactly
+    once, when the app is first installed — setup added to it later never reaches a site that
+    already has the app, and the failure is silent because the hook looks correctly wired.
+    Every existing tenant predates this, so after_install alone would provision nobody.
+
+    Cheap no-op once wired: the site_config check costs nothing, so only an unprovisioned
+    site pays for the `sudo mysql` probe inside setup_readonly_db.run(). That run() is itself
+    idempotent and degrades to a WARN where sudo/DB privileges don't allow the grant, so this
+    can never fail an install or a migrate."""
+    if frappe.conf.get("sigzen_local_db_user"):
+        return
+    try:
+        from sigzenbi_client.install import setup_readonly_db
+
+        setup_readonly_db.run()
+    except Exception:
+        # Defence-in-depth is not worth failing an install or migrate over.
+        frappe.log_error(title="SigzenBI read-only DB user", message=frappe.get_traceback())
+
+
+def after_install():
+    """`after_install` / `after_migrate` hook entrypoint."""
+    create_default_permissions_and_roles()
+    ensure_readonly_db_user()
 
 
 def create_default_permissions_and_roles():
@@ -30,7 +59,7 @@ def create_default_permissions_and_roles():
     except Exception:
         # Same rule: a sidebar failure must never block install or migrate.
         frappe.log_error(title="SigzenBI Workspace Sidebar", message=frappe.get_traceback())
-    # NOTE: no gateway-secret generation at install (C3-completion). The old setup_gateway_secret()
+    # NOTE: no gateway-secret generation at install. The old setup_gateway_secret()
     # minted a RANDOM sigzen_gateway_shared_secret that could never match Central's global — which
     # silently broke per-tenant secret DISTRIBUTION on every fresh self-serve install (the box2 417
     # root cause). Auth is now purely per-tenant: the tenant receives its own gateway_secret at
@@ -81,8 +110,8 @@ def ensure_desktop_icon():
 def set_default_subscription_settings():
     # Idempotent + fail-forward: only SEED the hub URLs when unset, so a re-install or an
     # installer-supplied value (install_agent.sh / register_agent) is never clobbered back to
-    # the default. The old code unconditionally wrote a DEAD default (central.sigzenbi.com /
-    # bi.sigzenbi.com), silently pointing every fresh install at a non-existent hub so nothing
+    # the default. The old code unconditionally wrote a DEAD default host pair (
+    # long since retired), silently pointing every fresh install at a non-existent hub so nothing
     # worked until someone hand-edited the setting.
     current_central = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link")
     current_superset = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_link")

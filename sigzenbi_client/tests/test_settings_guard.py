@@ -1,6 +1,6 @@
 """`read_only` on this doctype is a FORM property; these fields need a SERVER guard.
 
-Live 2026-08-17: `demo.viewer@sigzen.com`, an ordinary BI member who also holds System Manager on
+Live 2026-08-17: `viewer@example.com`, an ordinary BI member who also holds System Manager on
 the customer's own ERPNext (the common case), repointed `sigzenbi_erp_link` from Central to an
 arbitrary host with a single `PUT /api/resource/SigzenBI Subscription Settings/...` -- HTTP 200,
 value changed, no error. Every field on the doctype is declared `read_only: 1`, which greys the

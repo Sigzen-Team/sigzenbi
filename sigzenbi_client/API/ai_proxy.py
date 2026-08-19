@@ -20,7 +20,7 @@ def _get_central_base():
 
 
 # _get_client_name is defined once below (the fallback-capable version); the earlier
-# duplicate here was dead code shadowed by it (audit LOW #26).
+# duplicate here was dead code shadowed by it.
 
 
 def central_authed(fn):
@@ -95,7 +95,7 @@ def _central_user_message(exc):
 	return msg
 
 
-# Central is regrouping API/ai into API/{billing,semantic,bi_chat,ai_chat} (PLAN Phase 0).
+# Central is regrouping API/ai into API/{billing,semantic,bi_chat,ai_chat}.
 # The two boxes deploy independently, so for one release this client must work against
 # EITHER layout: call the new path, and if Central 404s it (i.e. Central has not deployed
 # the move yet) retry once on the legacy path. Delete _legacy_central_path and this retry
@@ -502,7 +502,7 @@ def create_dashboard_with_chart(chart_id=None, dashboard_title=None, client_name
 	)
 
 
-# --- 2026-07-06: conversational agent proxies (spec §4 #14). Forward client_name +
+# --- 2026-07-06: conversational agent proxies #14). Forward client_name +
 # chat_user (the resolved end-user) server-side; the browser never supplies either.
 @frappe.whitelist(allow_guest=True)
 def start_chat(client_name=None, **kwargs):

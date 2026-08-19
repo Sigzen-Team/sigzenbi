@@ -10,7 +10,7 @@ from frappe import _
 def _verify_signature(payload: dict, provided_sig: str, client_name: str = None) -> bool:
     """
     Verify that this webhook was sent by our Central server. Central signs the payload
-    with THIS tenant's per-tenant gateway_secret (C3-completion); during the migration
+    with THIS tenant's per-tenant gateway_secret; during the migration
     window it may still sign with the legacy global secret, so we accept either via
     auth._accepted_secrets(client_name) — the single source of "which secrets are valid
     for this tenant right now". HMAC-SHA256, constant-time, no short-circuit on match.

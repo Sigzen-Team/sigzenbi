@@ -26,7 +26,7 @@ TRUST MODEL — identical to member_permissions.py, deliberately:
   * Least disclosure: a WHERE fragment and a field-name list. No values beyond those the member's
     own permissions already scope them to, no secrets.
 
-FAIL-CLOSED CONTRACT (SPEC §4). Per doctype the clause is exactly one of:
+FAIL-CLOSED CONTRACT. Per doctype the clause is exactly one of:
   * ""    — Frappe itself imposes no restriction on this member (genuinely unrestricted)
   * DENY  — zero rows. Every error, every unresolvable case, lands here.
   * a parenthesised SQL fragment
@@ -51,7 +51,7 @@ from sigzenbi_client.API.gateway.local_db import (
 	BLOCKED_KEYWORDS,
 	_get_executable_sql,
 	_INTO_FILE_RE,
-	_SENSITIVE_TABLE_RE,
+	_sensitive_table_used,
 )
 
 DENY = "DENY"
@@ -148,7 +148,7 @@ def _next_blocked_subquery(sql):
 		close_index = _matching_paren(sql, open_index)
 		if close_index == -1:
 			continue
-		if _SENSITIVE_TABLE_RE.search(sql[open_index + 1 : close_index]):
+		if _sensitive_table_used(sql[open_index + 1 : close_index]):
 			return open_index, close_index
 	return None
 
@@ -187,12 +187,12 @@ def _flatten_blocked_subqueries(clause):
 
 	Only blocked tables are touched — a subquery over business tables stays live, so it keeps
 	reflecting the data at query time instead of freezing a snapshot into the clause."""
-	if not clause or not _SENSITIVE_TABLE_RE.search(clause):
+	if not clause or not _sensitive_table_used(clause):
 		return clause
 
 	out = clause
 	for _ in range(_MAX_BLOCKED_SUBQUERIES):
-		if not _SENSITIVE_TABLE_RE.search(out):
+		if not _sensitive_table_used(out):
 			return out
 		found = _next_blocked_subquery(out)
 		if not found:
@@ -292,7 +292,7 @@ def _child_clause(child, clause_by_parent):
 		else:
 			arms.append(f"({owned_by})")
 	if not arms:
-		# No parent at all (17 such child doctypes here), or every one of them denies. SPEC §4.
+		# No parent at all (17 such child doctypes here), or every one of them denies.
 		return DENY
 	if not restricted:
 		# Every possible parent is genuinely unrestricted, so the child is too. Emitting a
@@ -390,7 +390,7 @@ def _scope_for(doctype, member_email):
 		return denied
 	# Backstop, independent of how the clause was built: a fragment our own execution guard
 	# refuses is not enforceable, and handing it out would blank the dataset with no explanation.
-	if clause and _SENSITIVE_TABLE_RE.search(clause):
+	if clause and _sensitive_table_used(clause):
 		return denied
 	return {"clause": clause, "fields": fields}
 
@@ -443,7 +443,7 @@ def get_member_scope(client_name=None, member_email=None, doctypes=None, secret=
 		)
 		return _failure("doctypes must be a non-empty list of doctype names.")
 
-	# SPEC §3.9: a BI seat is only ever a real ERPNext user, and access follows the ERP. A member
+	#: a BI seat is only ever a real ERPNext user, and access follows the ERP. A member
 	# whose user was deleted or disabled has no permissions to derive — that is DENY, not
 	# "unrestricted". Returned as a successful (and therefore cacheable) result, because it is a
 	# decision about this member, not a failure to reach this box.

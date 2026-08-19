@@ -2,7 +2,7 @@
 row-level-scope derivation (sigzenbi_central .../team/user_permissions.get_member_data_scope).
 
 WHY THIS EXISTS: the SQL gateway (execute_query -> local_db.is_read_only_sql) deliberately blocks
-Frappe's core auth tables, and its `_SENSITIVE_TABLE_RE` `\btabUser\b` branch ALSO matches
+Frappe's core auth tables, and it blocks the whole `tabUser` family, including
 `tabUser Permission`. So Central could never read a member's User Permissions through the gateway
 — every row-scoped member failed CLOSED to zero rows. This endpoint is the gateway-free path for
 that ONE fixed, read-only, non-secret projection. It is NOT a general query endpoint: it accepts

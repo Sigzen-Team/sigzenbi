@@ -19,13 +19,13 @@ def get_context(context):
     # /client_plans?x=1 always ran the controller -- which is what made this easy to miss.
     context.no_cache = 1
 
-    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://sigzenbi-central.sigzenone.com"
+    central_url = frappe.conf.get("central_app_url") or frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or "https://central.sigzen.com"
     if central_url and not central_url.endswith('/'):
         central_url += '/'
     context.central_url = central_url
     context.register_url = "/portal/signup"
 
-    # 2026-07-10 (spec §8 CTA fix): a logged-in viewer clicking "Select This Plan"
+    # 2026-07-10 CTA fix): a logged-in viewer clicking "Select This Plan"
     # must NOT be routed to /portal/signup?plan=... -- that bounces an already-logged-in
     # user straight back to the dashboard. Detect the BI session the same way every
     # other client page does (resolve_bi_user, central_sid-backed -- never a request

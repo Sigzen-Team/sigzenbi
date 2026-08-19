@@ -29,7 +29,7 @@ def run(central_url=None, **registration_kwargs):
             print(f"[register_agent] Central URL already {central_url} (no-op).")
 
     # Step 3: self-registration. Already registered (client_name set on the
-    # singleton, per-client_name credential store from phase0-3) -> clean no-op.
+    # singleton, per-client_name credential store from -> clean no-op.
     client_name = settings.client_name
     if client_name:
         from sigzenbi_client import credentials as client_credentials
@@ -45,7 +45,7 @@ def run(central_url=None, **registration_kwargs):
 
     # Not registered yet. The existing self-registration endpoint needs real
     # registration inputs (email/password/...); without them, degrade to a WARN
-    # instead of failing the whole install — this box may be pending phase0-3
+    # instead of failing the whole install — this box may be pending
     # onboarding, matching the plan's "still installs, logs that it's pending".
     if not {"email", "password"}.issubset(registration_kwargs):
         print(

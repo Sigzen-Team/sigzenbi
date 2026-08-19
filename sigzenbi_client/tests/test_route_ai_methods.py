@@ -1,4 +1,4 @@
-"""PLAN P0.5: Central AI method paths must route to client proxies BEFORE and AFTER
+""": Central AI method paths must route to client proxies BEFORE and AFTER
 Central's API/ai regroup.
 
 Why this test matters more than it looks: the old code used str.replace() with a

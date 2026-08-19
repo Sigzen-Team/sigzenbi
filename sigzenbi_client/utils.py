@@ -497,14 +497,14 @@ def fetch_active_plans(central_url):
     return []
 
 
-# --- Central AI method routing (PLAN P0.5) -----------------------------------
+# --- Central AI method routing -----------------------------------
 # Every AI call in a Central-authored template must be rewritten to a client-side
 # sid-forwarding proxy: the browser must NEVER hit the Central domain (root
 # CLAUDE.md rule). This used to be ~50 lines of duplicated str.replace() across
 # ai_chat.py, ai_chart.py, client_billing.py and client_dashboard.py.
 #
 # The bucket segment is a WILDCARD on purpose. Central is regrouping API/ai into
-# API/{billing,semantic,bi_chat,ai_chat} (PLAN Phase 0); a hardcoded ".API.ai."
+# API/{billing,semantic,bi_chat,ai_chat}; a hardcoded ".API.ai."
 # would silently become a no-op the moment that lands -- str.replace() does not
 # raise when its source key is absent, so the browser would just start calling
 # Central directly. Matching any bucket makes this survive the move, and any

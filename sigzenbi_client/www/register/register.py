@@ -262,6 +262,14 @@ def get_client_credentials(**kwargs):
 
 @frappe.whitelist(allow_guest=True)
 def fetch_client_subscription(**kwargs):
+    # Operator-only: this call runs with this site's stored Central credentials and flips
+    # the local `subscription_status` that three setup pages gate on. Unlike
+    # get_client_credentials() above -- whose first-registration bootstrap genuinely cannot
+    # be authenticated -- this one only ever runs on an already-registered site, so there is
+    # no bootstrap case to preserve.
+    from sigzenbi_client.www.databasereg.databasereg import require_site_operator
+
+    require_site_operator()
     try:
         base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
         if base_url and not base_url.endswith('/'):

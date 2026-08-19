@@ -1,5 +1,5 @@
 """
-Client-side sid-forwarding proxies for the Team page (spec §4.7).
+Client-side sid-forwarding proxies for the Team page.
 
 HARD RULE (security, §2): these proxies forward ONLY the browser's `central_sid`
 cookie to Central and send NO `Authorization` header. They must NEVER use

@@ -3,12 +3,12 @@ app_title = "SigzenBI Client"
 app_publisher = "SigzenBI"
 app_description = "Dashboards and plain-English answers from your ERPNext data"
 app_email = "info@sigzenbi.com"
-app_license = "mit"
+app_license = "gpl-3.0"
 
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -84,12 +84,12 @@ app_license = "mit"
 # ------------
 
 # before_install = "sigzenbi_client.install.before_install"
-after_install = "sigzenbi_client.after_install.after_install.create_default_permissions_and_roles"
+after_install = "sigzenbi_client.after_install.after_install.after_install"
 # ALSO on every migrate. after_install fires once, at first install, so boxes installed before
 # ensure_desktop_icon()/the seeders existed never got them -- which is exactly why the Desk tile
 # was missing while the Workspace was present. The routine is idempotent, so re-running it is
 # free and makes the desk tile + default role self-healing.
-after_migrate = "sigzenbi_client.after_install.after_install.create_default_permissions_and_roles"
+after_migrate = "sigzenbi_client.after_install.after_install.after_install"
 
 # Uninstallation
 # ------------
