@@ -1,4 +1,4 @@
-"""Member-scope cache invalidation, client half (SPEC §3.2).
+"""Member-scope cache invalidation, client half.
 
 What must never regress:
 - a permission-changing save ENQUEUES the bust and NEVER raises, even with the queue down —

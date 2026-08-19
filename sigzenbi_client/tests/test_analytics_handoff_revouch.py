@@ -67,8 +67,7 @@ class TestHandoffRecoversAStaleSession(FrappeTestCase):
 
         This endpoint used to read `central_sid` straight off the request, which reintroduced the
         stale-cookie identity bleed `resolve_bi_user` exists to prevent — on the one endpoint that
-        grants a LOGIN. Measured before the fix: sign in as dixit (analyst), switch the ERP
-        session to sales1 (a VIEWER), click Open Analytics -> signed into Superset as dixit.f.
+        grants a LOGIN. Measured before the fix: sign in as an analyst, switch the ERP session to a viewer, click Open Analytics -> signed into Superset as the analyst.
         A viewer inheriting an analyst's analytics session out of a cookie.
         """
         code = _code()

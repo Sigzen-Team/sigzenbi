@@ -28,7 +28,7 @@ def _client_name():
 
 def _secret(client_name=None):
     """Transport secret for a gateway call. With a client_name, returns that
-    tenant's per-client_name gateway_secret (C3), falling back to the shared
+    tenant's per-client_name gateway_secret, falling back to the shared
     singleton during migration. Without one (the active-clients listing, which
     is intentionally global), returns the shared singleton directly."""
     if client_name:
@@ -452,7 +452,7 @@ def check_and_start_polling_loop():
 
     # Only spawn/respawn a loop for a name that actually has an active credential
     # on Central — a login existing is not, on its own, sufficient reason to poll
-    # Central forever (see CLAUDE.md: this was the direct cause of unbounded
+    # Central forever (this was the direct cause of unbounded
     # process buildup from old test signups). Fail open (don't filter) if Central
     # can't be reached right now, rather than stop respawning legitimate loops.
     active = _fetch_active_client_names()

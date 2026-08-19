@@ -1,5 +1,5 @@
 """
-Idempotent read-only DB user provisioning (phase0-4 Track B / H1), invoked by
+Idempotent read-only DB user provisioning, invoked by
 install_agent.sh Step 4.
 
 Creates a SELECT-only MariaDB user (`sigzen_ro`) scoped to this site's own
@@ -88,7 +88,7 @@ def run():
                 f"[setup_readonly_db] WARN: could not create read-only DB user '{RO_USER}' — "
                 f"this box's sudo/DB privileges don't allow it ({err}). Degrading: the gateway "
                 f"will keep running as the schema owner until this is provisioned manually "
-                f"(see phase0-4 H1)."
+                f"(see H1)."
             )
             return {"status": "warn", "reason": err}
         _wire_site_config(db_name, password)

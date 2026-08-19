@@ -3,7 +3,7 @@ import requests
 
 
 def _require_authenticated_caller():
-    """Reject anonymous callers (audit LOW #25): installing a template provisions real Superset
+    """Reject anonymous callers: installing a template provisions real Superset
     resources, so it must not be an open unauthenticated proxy an anonymous GET can trigger
     (CSRF-able within-tenant DoS). Verify the browser's central_sid resolves to a real Central
     user; fail closed on a missing/invalid sid. Mirrors team_proxy._forward's sid-resolve --
@@ -39,8 +39,8 @@ def get_templates():
     if base_url and not base_url.endswith("/"):
         base_url += "/"
     client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
-    # Per-tenant gateway_secret (C3), NOT the global shared secret — Central's get_templates
-    # secret path now verifies the secret belongs to this client_name (audit LOW #8/#9).
+    # Per-tenant gateway_secret, NOT the global shared secret — Central's get_templates
+    # secret path now verifies the secret belongs to this client_name.
     from sigzenbi_client.API.gateway.poll_jobs import _secret
     secret = _secret(client_name)
 
@@ -56,15 +56,15 @@ def get_templates():
 
 @frappe.whitelist(allow_guest=True)
 def install_template(template_name=None):
-    _require_authenticated_caller()  # audit LOW #25: no anonymous install
+    _require_authenticated_caller()  # no anonymous install
     base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or frappe.conf.get("central_app_url")
     if not base_url:
         return {"success": False, "message": "Central ERP link is not configured."}
     if base_url and not base_url.endswith("/"):
         base_url += "/"
     client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
-    # Per-tenant gateway_secret (C3), NOT the global shared secret — Central's install_template
-    # now verifies the secret belongs to this specific client_name (audit MEDIUM #3/#4).
+    # Per-tenant gateway_secret, NOT the global shared secret — Central's install_template
+    # now verifies the secret belongs to this specific client_name.
     from sigzenbi_client.API.gateway.poll_jobs import _secret
     secret = _secret(client_name)
 

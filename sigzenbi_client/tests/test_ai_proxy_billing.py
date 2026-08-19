@@ -23,21 +23,58 @@ CALL = "sigzenbi_client.utils.call_central_api"  # imported lazily inside each p
 FORWARD = "sigzenbi_client.API.team_proxy._forward"  # imported lazily inside each sid-forwarded proxy fn
 
 
+AUTH = "sigzenbi_client.API.ai_proxy._proxy_auth"
+
+
 class TestAIProxyBilling(FrappeTestCase):
+    def setUp(self):
+        # These proxies are wrapped in @central_authed, whose authenticator resolves the
+        # browser's `central_sid` against Central BEFORE the body runs. In a unit test
+        # there is no request and no sid, so every one of these previously died in
+        # _proxy_auth with PermissionError -- 11 tests that looked like coverage and
+        # asserted nothing. Stub the authenticator so the FORWARDING behaviour under test
+        # is reachable; test_every_billing_proxy_fails_closed_for_guest below covers the
+        # authenticator itself, so stubbing it here does not lose the security assertion.
+        # addCleanup, never tearDown: unittest skips tearDown when setUp raises.
+        patcher = patch(AUTH, return_value="owner@acme.com")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_every_billing_proxy_fails_closed_for_guest(self):
+        """The authenticator stubbed in setUp must actually be load-bearing: with a real
+        _proxy_auth and no valid central_sid, every one of these must refuse."""
+        from sigzenbi_client.utils import resolve_authenticated_user  # noqa: F401
+
+        calls = {
+            "get_available_packs": (), "get_wallet_balance": (), "get_ledger": (),
+            "get_purchase_history": (), "get_ai_billing_status": (),
+            "remove_byok_key": (), "save_byok_key": ("sk-ant-x",),
+            "set_ai_policy": ("platform",), "initiate_purchase": ("Starter",),
+        }
+        with patch("sigzenbi_client.utils.resolve_authenticated_user", return_value=None), \
+             patch("frappe.request", None), patch("frappe.log_error"):
+            for name, args in calls.items():
+                fn = getattr(ai_proxy, name, None)
+                if fn is None:
+                    continue
+                with self.subTest(proxy=name):
+                    with self.assertRaises(frappe.PermissionError):
+                        fn(*args)
+
     # --- unchanged: global/non-sensitive, still call_central_api (tenant API key) ---
 
     def test_get_available_packs_forwards(self):
-        with patch(CALL, return_value=[{"name": "Starter"}]) as m:
+        with patch(FORWARD, return_value=[{"name": "Starter"}]) as m:
             out = ai_proxy.get_available_packs()
-        called_url = m.call_args[0][0]
-        self.assertIn("payment_api.get_available_packs", called_url)
+        method_path, payload = m.call_args[0]
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.payment_api.get_available_packs")
         self.assertEqual(out, [{"name": "Starter"}])
 
     def test_get_wallet_balance_forwards(self):
-        with patch(CALL, return_value={"balance": 100}) as m:
+        with patch(FORWARD, return_value={"balance": 100}) as m:
             out = ai_proxy.get_wallet_balance()
-        called_url = m.call_args[0][0]
-        self.assertIn("payment_api.get_wallet_balance", called_url)
+        method_path, payload = m.call_args[0]
+        self.assertIn("payment_api.get_wallet_balance", method_path)
         self.assertEqual(out, {"balance": 100})
 
     # --- 2026-07-10 security fix: sid-only forwarding via team_proxy._forward ---
@@ -48,7 +85,7 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value={"order_id": "o1"}) as m:
             out = ai_proxy.initiate_razorpay_purchase("Starter")
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.initiate_razorpay_purchase")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.payment_api.initiate_razorpay_purchase")
         self.assertEqual(payload["pack_name"], "Starter")
         self.assertEqual(payload["client_name"], ai_proxy._get_client_name())
         self.assertEqual(out, {"order_id": "o1"})
@@ -57,7 +94,7 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value=[]) as m:
             ai_proxy.get_purchase_history(limit=10)
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.get_purchase_history")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.payment_api.get_purchase_history")
         self.assertEqual(payload["limit"], 10)
         self.assertEqual(payload["client_name"], ai_proxy._get_client_name())
 
@@ -65,7 +102,7 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value=[]) as m:
             ai_proxy.get_ledger(limit=5)
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.get_ledger")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.payment_api.get_ledger")
         self.assertEqual(payload["limit"], 5)
         self.assertEqual(payload["client_name"], ai_proxy._get_client_name())
         # offset always forwarded (default 0); types/allowance omitted when falsy so an
@@ -82,7 +119,7 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value={"rows": [], "total": 0}) as m:
             ai_proxy.get_ledger(limit=25, offset=25, types='["Grant","Purchase"]', allowance="build")
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.payment_api.get_ledger")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.payment_api.get_ledger")
         self.assertEqual(payload["offset"], 25)
         self.assertEqual(payload["types"], '["Grant","Purchase"]')
         self.assertEqual(payload["allowance"], "build")
@@ -95,7 +132,7 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value={"ok": True, "last4": "1234"}) as m:
             out = ai_proxy.save_byok_key("sk-ant-SECRET1234")
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.byok_api.save_byok_key")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.byok_api.save_byok_key")
         self.assertEqual(payload, {"api_key": "sk-ant-SECRET1234"})
         self.assertNotIn("client_name", payload)
         self.assertEqual(out["last4"], "1234")
@@ -104,21 +141,21 @@ class TestAIProxyBilling(FrappeTestCase):
         with patch(FORWARD, return_value={"ok": True}) as m:
             ai_proxy.remove_byok_key()
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.byok_api.remove_byok_key")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.byok_api.remove_byok_key")
         self.assertEqual(payload, {})
 
     def test_set_ai_policy_sid_forwards_no_client_name(self):
         with patch(FORWARD, return_value={"ok": True}) as m:
             ai_proxy.set_ai_policy("credits_then_byok")
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.byok_api.set_ai_policy")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.byok_api.set_ai_policy")
         self.assertEqual(payload, {"policy_order": "credits_then_byok"})
 
     def test_get_ai_billing_status_sid_forwards_no_client_name(self):
         with patch(FORWARD, return_value={"policy_order": "credits_then_byok"}) as m:
             out = ai_proxy.get_ai_billing_status()
         method_path, payload = m.call_args[0]
-        self.assertEqual(method_path, "sigzenbi_central.API.ai.byok_api.get_ai_billing_status")
+        self.assertEqual(method_path, "sigzenbi_central.API.billing.byok_api.get_ai_billing_status")
         self.assertEqual(payload, {})
         self.assertEqual(out["policy_order"], "credits_then_byok")
 

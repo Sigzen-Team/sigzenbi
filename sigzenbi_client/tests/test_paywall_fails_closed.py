@@ -1,4 +1,4 @@
-"""PLAN P23.10: the dashboard paywall fails CLOSED, and distinguishes "unknown".
+""": the dashboard paywall fails CLOSED, and distinguishes "unknown".
 
 It used to fail OPEN: any Central lookup error left state=None and fell through to the
 normal render, so an expired tenant saw their dashboards whenever Central was slow or

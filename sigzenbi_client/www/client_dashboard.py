@@ -5,10 +5,10 @@ import requests
 
 
 def _vouch_for_logged_in_user(visitor):
-    """phase1-2 Task 2B: SSO entry for a visitor already logged into THIS
+    """ Task 2B: SSO entry for a visitor already logged into THIS
     client site's own Frappe session (e.g. an invited, passwordless-on-Central
     user) but with no central_sid cookie yet. Vouches for them with Central
-    using this tenant's per-tenant gateway_secret (C3) instead of falling back
+    using this tenant's per-tenant gateway_secret instead of falling back
     to the BI login form. Returns (central_sid, client_user) on success, or
     (None, None) on ANY failure — never sets cookies on a partial result."""
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
@@ -147,10 +147,14 @@ def upgrade_subscription(plan=None, analysts=0, viewers=0, ai_licences=0,
 
 def _fetch_subscription_state(client_user):
     """Credentialed read of THIS tenant's subscription status from Central so the
-    portal can decide whether to render the paywall (Task 5). Reuses call_central_api's
+    portal can decide whether to render the paywall. Reuses call_central_api's
     api_key/api_secret forwarding (same path dashboard_api uses). Returns the state
-    dict {status,plan,end_date} or None on any failure -- callers fail OPEN to the
-    normal dashboard render (an expired tenant already has no data, per Task 4)."""
+    dict {status,plan,end_date}, or None when the lookup could not be completed.
+
+    None means UNKNOWN, not "entitled": get_context() renders neither the dashboards nor
+    the paywall on None. This docstring used to say callers fail OPEN, describing behaviour
+    that was deliberately removed -- leaving that in invited someone to "restore" a gate
+    that does not gate."""
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
     if not base_url:
         return None
@@ -206,7 +210,7 @@ def get_context(context):
     context.central_url = base_url
     context.csrf_token = frappe.sessions.get_csrf_token()
 
-    # Paywall (PLAN P23.10). THREE states, not two -- that distinction is the whole fix:
+    # Paywall. THREE states, not two -- that distinction is the whole fix:
     #
     #   entitled       render the dashboards
     #   not entitled   render the paywall (shown-and-paywalled, SPEC 7 -- an upsell
@@ -336,10 +340,10 @@ def get_context(context):
                 "'/ai_chart'"
             )
             # 2026-07-10: self-serve AI monetization (credit packs + BYOK) -- browser
-            # must never hit the Central domain (root CLAUDE.md rule), so every Central
+            # must never hit the Central domain (architecture rule), so every Central
             # method these pages might call is rewritten to its client proxy here even
             # though client_dashboard.html itself doesn't call them yet -- this keeps
-            # client_billing.html/nav (phase2-9/Task 9) working without a second pass
+            # client_billing.html/nav 9) working without a second pass
             # over this file.
             from sigzenbi_client.utils import route_ai_methods_to_proxy
             central_html = route_ai_methods_to_proxy(central_html)

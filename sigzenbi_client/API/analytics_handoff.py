@@ -4,7 +4,7 @@ WHY THIS ENDPOINT IS ON THE CLIENT BOX AND NOT ON CENTRAL
 Central is subscription management and is never a customer-facing surface (founder, 2026-08-08).
 That is exactly what killed the OAuth SSO this replaces: authorization-code flow *requires* the
 browser to visit the identity provider, so every analyst login walked the customer through
-sigzenbi-central.sigzenone.com. Here the browser makes two hops it is allowed to make — the client
+the SigzenBI hub. Here the browser makes two hops it is allowed to make — the client
 domain, then the analytics domain — and the Central conversation happens server-to-server, out of
 sight, over the session this box already holds.
 
@@ -21,8 +21,8 @@ This endpoint used to read `central_sid` straight off the request. `resolve_bi_u
 precisely to stop that: *"a LIVE ERP session wins over a stale client_session_user cookie ...
 fixes the stale-cookie identity bleed where switching ERP accounts in one browser kept the
 previous BI session"*. Bypassing it reintroduced the bleed on the one endpoint where it grants a
-LOGIN. Measured: sign in as dixit (analyst), switch the ERP session to sales1 (a VIEWER), click
-Open Analytics -> **signed into Superset as dixit.f**. A viewer inheriting an analyst's analytics
+LOGIN. Measured: sign in as an analyst, switch the ERP session to a viewer, click
+Open Analytics -> **signed into Superset as the analyst**. A viewer inheriting an analyst's analytics
 session, from a cookie. Now the live session decides, and `resolve_bi_user` fails CLOSED when the
 ERP user is not a vouchable member rather than falling back to whoever the cookie names.
 

@@ -1,11 +1,11 @@
-"""PLAN P0.5: Central AI method paths must route to client proxies BEFORE and AFTER
+""": Central AI method paths must route to client proxies BEFORE and AFTER
 Central's API/ai regroup.
 
 Why this test matters more than it looks: the old code used str.replace() with a
 hardcoded ".API.ai." key. str.replace() does not raise when its key is absent -- so
 the day Central moved those modules, every rewrite would have silently become a
 no-op and the browser would have started calling the Central domain directly,
-violating the root CLAUDE.md rule with no error anywhere.
+violating that architecture rule with no error anywhere.
 """
 import unittest
 
@@ -79,7 +79,7 @@ class TestRouteAIMethodsToProxy(unittest.TestCase):
 	def test_seat_quote_is_routed(self):
 		"""P1.11: the billing page's live total. If this stays unproxied the browser calls
 		the CENTRAL domain directly -- a cross-origin call from the tenant's own portal,
-		which the root CLAUDE.md rule exists to prevent, and which fails on CORS anyway."""
+		which that architecture rule exists to prevent, and which fails on CORS anyway."""
 		self.assertEqual(
 			route("sigzenbi_central.API.billing.quote.quote_subscription"),
 			"sigzenbi_client.API.ai_proxy.quote_subscription",

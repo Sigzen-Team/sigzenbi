@@ -132,9 +132,15 @@ class TestRenderSignup(unittest.TestCase):
         # client_name empty AND base_url empty -> no redirect, no HTTP fetch.
         def _gsv(doctype, field):
             return ""
+        # get_all is stubbed too: render_signup probes for an ERPNext Company to decide
+        # whether the bench looks set up, and this test is about the redirect/fetch
+        # decision, not about Company data. Without the stub it reached a real
+        # DatabaseQuery whose doctype metadata lookup collided with the patched
+        # get_single_value, so the test errored instead of asserting anything.
         with patch("frappe.sessions.get_csrf_token", return_value="tok"), \
              patch("frappe.get_installed_apps", return_value=["sigzenbi_client"]), \
              patch("sigzenbi_client.www.register.register.requests") as mreq, \
+             patch("frappe.get_all", return_value=[]), \
              patch("frappe.db.get_single_value", side_effect=_gsv):
             ctx = frappe._dict()
             frappe.form_dict.pop("plan", None)

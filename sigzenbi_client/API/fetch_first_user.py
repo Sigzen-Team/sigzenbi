@@ -8,7 +8,7 @@ def _validate_central_secret(secret, client_name=None):
     """
     Ensure this request is from Central. Bootstrap endpoint (delivers this tenant's
     gateway_secret) so it authenticates with the per-tenant api_secret the client already
-    holds from registration — not the global shared secret (C3-completion). Constant-time.
+    holds from registration — not the global shared secret. Constant-time.
     """
     from sigzenbi_client.API.gateway.auth import validate_bootstrap_secret
 

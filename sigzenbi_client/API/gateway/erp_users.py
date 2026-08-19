@@ -3,8 +3,7 @@ page so a BI seat is granted by PICKING a real ERPNext user instead of typing a 
 (SPEC-member-row-security §3.9).
 
 WHY THIS EXISTS: the SQL gateway (execute_query -> local_db.is_read_only_sql) blocks Frappe's
-core auth tables, and its `_SENSITIVE_TABLE_RE` `\\btabUser\\b` branch matches the whole tabUser
-family. Central therefore cannot read `tabUser` through the gateway at all, which is why this is
+core auth tables, and it blocks the whole `tabUser` family. Central therefore cannot read `tabUser` through the gateway at all, which is why this is
 a dedicated off-gateway endpoint — exactly like member_permissions.py. It is NOT a general query
 endpoint: it accepts no caller SQL.
 

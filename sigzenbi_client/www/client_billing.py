@@ -163,7 +163,7 @@ def get_context(context):
     # which sends neither key, on the configurator form exactly as before.
     context.is_flat = False
     context.can_renew = False
-    # PLAN-CARD STATE. The card now branches on status (Active vs lapsed) and on how many days
+    # Plan card state. The card now branches on status (Active vs lapsed) and on how many days
     # of trial remain; an unset subscription_status would render every tenant as current, and
     # an unset trial_days_left would drop the trial countdown entirely.
     context.subscription_status = None
@@ -230,7 +230,7 @@ def get_context(context):
     central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
     # Route every AI billing method the page's JS calls to the client-side sid-forwarding
-    # proxies -- the browser must never hit the Central domain (root CLAUDE.md rule).
+    # proxies -- the browser must never hit the Central domain (architecture rule).
     rewrites = {
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
         "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",

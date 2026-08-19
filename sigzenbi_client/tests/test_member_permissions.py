@@ -18,14 +18,25 @@ from sigzenbi_client.API.gateway.member_permissions import get_member_user_permi
 
 HOSTED = "hosted-test-identity"
 ROSTER = "sigzenbi_client.API.gateway.poll_jobs._candidate_client_names"
+# The per-tenant gateway secret this fake identity authenticates with. Patched in, not read
+# from site_config: this test used to present `sigzen_gateway_shared_secret`, the GLOBAL
+# secret retired by the C3 cutover (auth._ACCEPT_GLOBAL_GATEWAY_SECRET = False). The code
+# correctly rejected it, so the two positive-path tests failed and the trust boundary that
+# member RLS depends on had no working coverage. Patching _accepted_secrets also makes the
+# test hermetic, which is what its own docstring claims.
+SECRETS = "sigzenbi_client.API.gateway.auth._accepted_secrets"
+TEST_SECRET = "unit-test-per-tenant-gateway-secret"
 
 
 class TestMemberUserPermissions(unittest.TestCase):
+	def setUp(self):
+		# addCleanup, never tearDown: unittest skips tearDown when setUp raises.
+		patcher = patch(SECRETS, return_value=[TEST_SECRET])
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
 	def _secret(self):
-		s = frappe.conf.get("sigzen_gateway_shared_secret")
-		if not s:
-			self.skipTest("sigzen_gateway_shared_secret not configured on this site")
-		return s
+		return TEST_SECRET
 
 	def test_no_secret_rejected_without_db_read(self):
 		with patch(ROSTER, return_value=[HOSTED]), \

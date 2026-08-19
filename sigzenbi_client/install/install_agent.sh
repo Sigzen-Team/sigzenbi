@@ -81,19 +81,19 @@ echo "==> install_agent: site=$SITE central=$CENTRAL_URL"
 # ---- Step 1: ensure the app is installed on the site ------------------------
 if [ "$SKIP_APP_INSTALL" = "0" ]; then
   if run_bench list-apps 2>/dev/null | grep -qx "sigzenbi_client"; then
-    echo "==> [1/4] sigzenbi_client already installed on $SITE (skip)."
+    echo "==> [1/5] sigzenbi_client already installed on $SITE (skip)."
   else
-    echo "==> [1/4] installing sigzenbi_client on $SITE ..."
+    echo "==> [1/5] installing sigzenbi_client on $SITE ..."
     run_bench install-app sigzenbi_client
   fi
 else
-  echo "==> [1/4] --skip-app-install: assuming sigzenbi_client is already installed."
+  echo "==> [1/5] --skip-app-install: assuming sigzenbi_client is already installed."
 fi
 
 # ---- Step 2/3: point at Central + self-register (idempotent) ----------------
 # register_agent.run(central_url=..., [email=..., password=...]) sets sigzenbi_erp_link
 # and self-registers if signup creds are supplied; otherwise it WARNs and no-ops.
-echo "==> [2/4] pointing $SITE at Central + registering ..."
+echo "==> [2/5] pointing $SITE at Central + registering ..."
 # Also stamp the informational site_config key the selfcheck reads as a fallback.
 run_bench set-config sigzenbi_central_url "$CENTRAL_URL" >/dev/null 2>&1 || true
 
@@ -103,13 +103,23 @@ KW="{\"central_url\": \"$CENTRAL_URL\""
 KW="$KW}"
 run_bench execute sigzenbi_client.install.register_agent.run --kwargs "$KW"
 
+# ---- Step 3: provision the read-only DB user the gateway runs as ------------
+# Defence-in-depth (H1): the gateway executes Central-supplied SQL, and its software
+# allowlist should not be the only thing standing between a leaked gateway secret and
+# the schema. This grants a SELECT-only `sigzen_ro` and wires site_config's
+# sigzen_local_db_* so local_db.py routes through it. Idempotent, and it degrades to a
+# WARN (never a failure) on a box whose sudo/DB privileges don't allow the grant.
+echo "==> [3/5] provisioning the read-only gateway DB user ..."
+run_bench execute sigzenbi_client.install.setup_readonly_db.run || \
+  echo "install_agent: WARN - read-only DB user not provisioned; gateway will run as the schema owner." >&2
+
 # ---- Step 4: post-install self-check (read-only) ----------------------------
-echo "==> [3/4] restarting to start the gateway poll loop ..."
+echo "==> [4/5] restarting to start the gateway poll loop ..."
 # The poll-loop heartbeat starts on the scheduler; a bench restart makes selfcheck
 # deterministic instead of racing a cold scheduler. Best-effort (dev benches vary).
 "$BENCH_BIN" restart >/dev/null 2>&1 || echo "install_agent: (bench restart skipped/failed — non-fatal)"
 
-echo "==> [4/4] running post-install self-check (may wait up to ~120s for first heartbeat) ..."
+echo "==> [5/5] running post-install self-check (may wait up to ~120s for first heartbeat) ..."
 if run_bench execute sigzenbi_client.install.selfcheck.run; then
   echo "==> install_agent: DONE. Agent is registered and healthy."
 else

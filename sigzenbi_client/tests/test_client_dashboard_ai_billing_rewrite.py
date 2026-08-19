@@ -1,8 +1,8 @@
 """2026-07-10: client_dashboard's rewrite chain must cover every Central AI
-billing/BYOK method (and the Renew button's method) -- root CLAUDE.md: no browser
+billing/BYOK method (and the Renew button's method) -- architecture rule: no browser
 request may hit the Central domain.
 
-2026-08-01 (PLAN P0.5/P0.2k): this asserted the rewrite pairs by grepping
+2026-08-01/P0.2k): this asserted the rewrite pairs by grepping
 get_context's SOURCE for literal strings. That coupled the guard to one
 implementation and, worse, would have kept passing if the literals were present
 but the Central paths had moved -- a str.replace() whose key is absent is a
