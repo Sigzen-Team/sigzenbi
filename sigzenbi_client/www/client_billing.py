@@ -230,7 +230,7 @@ def get_context(context):
     central_html = central_html.replace("url('/assets/", f"url('{browser_base_url}assets/")
 
     # Route every AI billing method the page's JS calls to the client-side sid-forwarding
-    # proxies -- the browser must never hit the Central domain (root CLAUDE.md rule).
+    # proxies -- the browser must never hit the Central domain (architecture rule).
     rewrites = {
         "sigzenbi_central.www.client_dashboard.renew_subscription": "sigzenbi_client.www.client_dashboard.renew_subscription",
         "sigzenbi_central.www.client_dashboard.upgrade_subscription": "sigzenbi_client.www.client_dashboard.upgrade_subscription",

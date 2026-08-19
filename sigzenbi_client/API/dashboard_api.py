@@ -6,7 +6,7 @@ import json
 def _resolve_client_name_for_email(email):
     """
     If this bench has a per-client_name credential row keyed by this user's
-    email-prefix (see CLAUDE.md — one bench, many client_names, each
+    email-prefix (one bench, many client_names, each
     email-prefix-derived), use that as the client_name to sign Central calls
     with. Otherwise return None so call_central_api() falls back to the
     site's primary client_name (the SigzenBI Subscription Settings singleton).

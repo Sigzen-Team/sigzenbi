@@ -252,7 +252,7 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
     saves the next rotated credentials returned in the response.
 
     client_name: this site can host multiple registered client_name
-    identities (see CLAUDE.md — one bench, many client_names). Pass the
+    identities — one bench, many client_names. Pass the
     identity this call is being made on behalf of so it's signed with (and
     any rotation is persisted to) that identity's own row in the
     `SigzenBI Client Credential` doctype instead of the single shared
@@ -500,7 +500,7 @@ def fetch_active_plans(central_url):
 # --- Central AI method routing -----------------------------------
 # Every AI call in a Central-authored template must be rewritten to a client-side
 # sid-forwarding proxy: the browser must NEVER hit the Central domain (root
-# CLAUDE.md rule). This used to be ~50 lines of duplicated str.replace() across
+# architecture rule). This used to be ~50 lines of duplicated str.replace() across
 # ai_chat.py, ai_chart.py, client_billing.py and client_dashboard.py.
 #
 # The bucket segment is a WILDCARD on purpose. Central is regrouping API/ai into
