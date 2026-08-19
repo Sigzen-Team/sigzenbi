@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-04-29 10:51:08.398001",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "subscription_details_section",
+  "client_name",
+  "column_break_zuwu",
+  "subscription_status",
+  "security_details_section",
+  "security_key",
+  "column_break_chgc",
+  "api_key",
+  "api_secret",
+  "central_api_key",
+  "central_api_secret",
+  "sigzenbi_link_section",
+  "sigzenbi_link",
+  "column_break_kcem",
+  "sigzenbi_erp_link"
+ ],
+ "fields": [
+  {
+   "fieldname": "subscription_details_section",
+   "fieldtype": "Section Break",
+   "label": "Subscription Details"
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Client Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_zuwu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "subscription_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Subscription Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "security_details_section",
+   "fieldtype": "Section Break",
+   "label": "Security Details"
+  },
+  {
+   "fieldname": "security_key",
+   "fieldtype": "Data",
+   "label": "Security Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_chgc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Data",
+   "label": "API Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "API Secret",
+   "read_only": 1
+  },
+  {
+   "fieldname": "central_api_key",
+   "fieldtype": "Data",
+   "label": "Central API Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "central_api_secret",
+   "fieldtype": "Password",
+   "label": "Central API Secret",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sigzenbi_link_section",
+   "fieldtype": "Section Break",
+   "label": "SigzenBI Link"
+  },
+  {
+   "fieldname": "sigzenbi_link",
+   "fieldtype": "Data",
+   "label": "SigzenBI Link",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_kcem",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sigzenbi_erp_link",
+   "fieldtype": "Data",
+   "label": "SigzenBI ERP Link",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-05 15:15:11.391131",
+ "modified_by": "Administrator",
+ "module": "SigzenBI Client",
+ "name": "SigzenBI Subscription Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

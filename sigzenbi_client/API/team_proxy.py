@@ -1,0 +1,276 @@
+"""
+Client-side sid-forwarding proxies for the Team page.
+
+HARD RULE (security, §2): these proxies forward ONLY the browser's `central_sid`
+cookie to Central and send NO `Authorization` header. They must NEVER use
+`utils.call_central_api` — its `Authorization: token api_key:api_secret` header
+authenticates as the tenant's PRIMARY user (normally the org owner), and with an
+expired/missing sid that token becomes the Central session (frappe/auth.py:735-736),
+so a client-site caller would silently act as the org owner and pass
+`require_capability("manage_team")` — a privilege escalation on these state-changing
+endpoints. Plain `requests.post(..., cookies={"sid": central_sid})` fails closed as
+Guest when the sid is invalid. Do not "fix" this back to call_central_api.
+"""
+import json
+
+import frappe
+import requests
+
+
+def _get_central_base():
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
+    if base_url and not base_url.endswith("/"):
+        base_url += "/"
+    return base_url
+
+
+def _server_message(body):
+    """Pull the human message out of Central's error body: frappe.throw ships it in
+    _server_messages (a JSON list of JSON strings); fall back to a plain message field."""
+    if isinstance(body, dict):
+        raw = body.get("_server_messages")
+        if raw:
+            try:
+                first = json.loads(raw)[0]
+                try:
+                    return json.loads(first).get("message") or first
+                except Exception:
+                    return first
+            except Exception:
+                pass
+        if isinstance(body.get("message"), str):
+            return body["message"]
+        exc = body.get("exception")
+        if isinstance(exc, str) and exc:
+            return exc
+    return "Request failed. Please try again."
+
+
+def _forward(method_path, payload):
+    central_sid = frappe.request.cookies.get("central_sid") if getattr(frappe.local, "request", None) else None
+    if not central_sid:
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+    base_url = _get_central_base()
+    if not base_url:
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+    # Uncached identity resolve (unlike resolve_authenticated_user's 60s cache) — team
+    # ops are rare and must see removals immediately. Only the sid cookie is forwarded.
+    csrf = ""
+    try:
+        resolve = requests.get(
+            f"{base_url}api/method/sigzenbi_central.www.client_login.resolve_session_user",
+            cookies={"sid": central_sid},
+            timeout=10,
+        )
+        data = resolve.json() if resolve.status_code == 200 else {}
+        msg = data.get("message") if isinstance(data, dict) else None
+        user = msg.get("user") if isinstance(msg, dict) else None
+        csrf = (msg.get("csrf_token") if isinstance(msg, dict) else "") or ""
+    except Exception:
+        user = None
+    if not user or user == "Guest":
+        frappe.throw("Not permitted", frappe.PermissionError)
+
+    # State-changing call: sid cookie only, csrf header, NO Authorization header.
+    resp = requests.post(
+        f"{base_url}api/method/{method_path}",
+        json=payload,
+        cookies={"sid": central_sid},
+        headers={"X-Frappe-CSRF-Token": csrf} if csrf else {},
+        timeout=15,
+    )
+    if resp.ok:
+        try:
+            return resp.json().get("message")
+        except Exception:
+            return None
+
+    # Surface Central's human error text (e.g. "Seat limit reached…") instead of a bare code.
+    try:
+        body = resp.json()
+    except Exception:
+        body = {}
+    frappe.local.response.http_status_code = resp.status_code
+    return {"success": False, "message": _server_message(body)}
+
+
+@frappe.whitelist(allow_guest=True)
+def list_team():
+    return _forward("sigzenbi_central.API.team.list_team.list_team", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def invite_user(email, full_name, seat_type="Viewer", ai_licensed=0):
+    # Never forward app_role — Central rejects non-Member anyway; don't offer the knob.
+    # seat_type/ai_licensed ARE forwarded: they are what makes an invited member a COUNTED
+    # seat instead of the free, uncounted NULL row Central used to write. Defaulted here as
+    # well as on Central, so an older cached team page that omits them still yields a Viewer
+    # rather than a TypeError.
+    return _forward("sigzenbi_central.API.team.invite_user.invite_user",
+                    {"email": email, "full_name": full_name,
+                     "seat_type": seat_type, "ai_licensed": ai_licensed})
+
+
+@frappe.whitelist(allow_guest=True)
+def remove_user(email):
+    return _forward("sigzenbi_central.API.team.remove_user.remove_user", {"email": email})
+
+
+@frappe.whitelist(allow_guest=True)
+def assign_dashboard(user, dashboard, assigned=1, permission_level=None):
+    # Central's assign_dashboard re-derives the tenant from the session and validates
+    # the user + dashboard belong to it — we forward only, adding no trust of our own.
+    return _forward("sigzenbi_central.API.team.assign_dashboard.assign_dashboard",
+                    {"user": user, "dashboard": dashboard, "assigned": assigned,
+                     "permission_level": permission_level})
+
+@frappe.whitelist(allow_guest=True)
+def set_ai_chat(user, enabled):
+    return _forward("sigzenbi_central.API.team.set_ai_chat.set_ai_chat",
+                    {"user": user, "enabled": enabled})
+
+
+@frappe.whitelist(allow_guest=True)
+def set_seat_type(user, seat_type):
+    # The PRICED seat change. Central cap-checks it, refuses to demote the owner, and
+    # downgrades that member's Edit grants on demotion — we forward only, as everywhere here.
+    return _forward("sigzenbi_central.API.team.set_seat_type.set_seat_type",
+                    {"user": user, "seat_type": seat_type})
+
+
+@frappe.whitelist(allow_guest=True)
+def set_team_admin(user, enabled):
+    # The FREE team-admin flag. Central refuses to remove the last admin, or your own.
+    return _forward("sigzenbi_central.API.team.set_seat_type.set_team_admin",
+                    {"user": user, "enabled": enabled})
+
+
+@frappe.whitelist(allow_guest=True)
+def transfer_ownership(user):
+    # Hands the org-owner flag to another roster member. Central gates this on the CALLER
+    # being the current owner -- not on manage_team -- so a team admin cannot seize the
+    # account. We forward only, as everywhere here.
+    return _forward("sigzenbi_central.API.team.transfer_ownership.transfer_ownership",
+                    {"user": user})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_my_superset_password(member_email=None):
+    return _forward("sigzenbi_central.API.team.superset_credentials.get_my_superset_password",
+                    {"member_email": member_email})
+
+
+@frappe.whitelist(allow_guest=True)
+def reset_superset_password(mode="random", new_password=None, member_email=None):
+    return _forward("sigzenbi_central.API.team.superset_credentials.reset_superset_password",
+                    {"mode": mode, "new_password": new_password, "member_email": member_email})
+
+
+@frappe.whitelist(allow_guest=True)
+def list_erp_users():
+    """Feeds the team page ERPNext-user PICKER (SPEC-member-row-security 3.9).
+
+    Without this proxy the page called Central method name against the CLIENT origin --
+    where sigzenbi_central is not installed -- so every real tenant got a 417 and the page
+    silently fell back to the free-text email box: the picker never rendered in production.
+    An affordance only; invite_user require_erp_user guard is the enforcement."""
+    return _forward("sigzenbi_central.scripts.report_unlinked_members.list_erp_users", {})
+
+
+# ---- Plan changes in both directions (2026-08-07) --------------------------------------
+# An upgrade already had a path (client_dashboard.upgrade_subscription -> checkout); these three
+# carry the DOWNGRADE side, which charges nothing and lands at the end of the paid term. Same
+# sid-forwarding proxy as the team calls -- Central re-derives the tenant and the owner check
+# from the session, so nothing here is trusted.
+
+
+@frappe.whitelist(allow_guest=True)
+def preview_plan_change(analysts=0, viewers=0, ai_licences=0, plan=None, interval=None):
+    return _forward("sigzenbi_central.API.billing.plan_change.preview_plan_change",
+                    {"analysts": analysts, "viewers": viewers, "ai_licences": ai_licences,
+                     "plan": plan, "interval": interval})
+
+
+@frappe.whitelist(allow_guest=True)
+def schedule_downgrade(analysts=0, viewers=0, ai_licences=0, plan=None, interval=None):
+    return _forward("sigzenbi_central.API.billing.plan_change.schedule_downgrade",
+                    {"analysts": analysts, "viewers": viewers, "ai_licences": ai_licences,
+                     "plan": plan, "interval": interval})
+
+
+@frappe.whitelist(allow_guest=True)
+def cancel_scheduled_change():
+    return _forward("sigzenbi_central.API.billing.plan_change.cancel_scheduled_change", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_scheduled_change():
+    """Read-only. Owner-gating and tenant resolution happen on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.plan_change.get_scheduled_change", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_subscription_payments(limit=20):
+    """Read-only plan-payment history. Owner-gated on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.subscription_purchase.get_subscription_payments",
+                    {"limit": limit})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_saved_card():
+    """Display metadata for the tenant's saved card. Never a token, never a PAN."""
+    return _forward("sigzenbi_central.API.billing.payment_method.get_saved_card", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def forget_saved_card():
+    return _forward("sigzenbi_central.API.billing.payment_method.forget_saved_card", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_billing_identity():
+    """The tenant's own invoicing details. Owner-gated on Central, from the session."""
+    return _forward("sigzenbi_central.API.billing.invoicing.get_billing_identity", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def save_billing_identity(gstin=None, state=None, billing_name=None,
+                          billing_address=None, country=None):
+    """Record the buyer's invoicing details. Validated on Central; the tenant is derived
+    there from the forwarded session, never from these arguments."""
+    return _forward("sigzenbi_central.API.billing.invoicing.save_billing_identity",
+                    {"gstin": gstin, "state": state, "billing_name": billing_name,
+                     "billing_address": billing_address, "country": country})
+
+
+@frappe.whitelist(allow_guest=True)
+def get_seat_usage():
+    """Purchased vs assigned seats. Owner-gated on Central, from the forwarded session."""
+    return _forward("sigzenbi_central.API.billing.subscription_purchase.get_seat_usage", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def download_subscription_invoice(purchase_name=None):
+    """The tenant's own GST invoice as base64 JSON.
+
+    Base64 rather than a binary pass-through precisely BECAUSE of this proxy: _forward
+    JSON-parses what Central returns, and a raw filecontent body would not survive it.
+    Ownership is proven on Central from the forwarded session, never from this argument.
+    """
+    return _forward("sigzenbi_central.API.billing.invoicing.download_subscription_invoice",
+                    {"purchase_name": purchase_name})
+
+
+@frappe.whitelist(allow_guest=True)
+def download_credit_pack_invoice(purchase_name=None):
+    """Same document, for an AI credit pack payment.
+
+    A SEPARATE forward rather than a `source` argument on the one above: the doctype a
+    purchase name is resolved in must never be caller-controlled, or a tenant could have
+    ownership checked against the wrong field. Ownership is still proven on Central from the
+    forwarded session, never from this argument.
+    """
+    return _forward("sigzenbi_central.API.billing.invoicing.download_credit_pack_invoice",
+                    {"purchase_name": purchase_name})

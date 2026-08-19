@@ -1,0 +1,140 @@
+import hmac
+
+import frappe
+
+# Client-side migration flag (mirrors Central's query_gateway._ACCEPT_GLOBAL_GATEWAY_SECRET).
+# While True, an inbound Central call is accepted if its secret matches EITHER this identity's
+# own per-tenant gateway_secret OR the legacy global sigzen_gateway_shared_secret. This is the
+# dual-accept window that keeps the ~40 live tenants working while Central is cut over to sign
+# every call per-tenant.
+# CUTOVER 2026-07-12: set to False — Central now signs every inbound call per-tenant (B1-B5) or
+# with the tenant api_secret (bootstrap), so the global secret is no longer accepted on ANY inbound
+# path. This is what actually retires the global shared secret. Rollback = set back to True.
+_ACCEPT_GLOBAL_GATEWAY_SECRET = False
+
+
+def _configured_client_name():
+	return (
+		frappe.conf.get("sigzen_client_name")
+		or frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
+	)
+
+
+def _secret_matches(provided, candidates):
+	"""True if `provided` equals any secret in `candidates`, compared constant-time.
+	Pure (no frappe) so it is unit-testable. Does NOT short-circuit on the first match —
+	every candidate is compared so match position can't be timed."""
+	if not provided:
+		return False
+	p = str(provided)
+	ok = False
+	for exp in candidates:
+		if exp and hmac.compare_digest(p, str(exp)):
+			ok = True
+	return ok
+
+
+def _accepted_secrets(client_name):
+	"""The set of secrets an inbound call for `client_name` may present: this identity's
+	own per-tenant gateway_secret (never the global fallback), plus — only while the
+	migration flag is set, or when no client_name is supplied (legacy caller) — the global
+	shared secret. Reads the per-tenant value via credentials (its sole owner)."""
+	candidates = []
+	if client_name:
+		from sigzenbi_client import credentials
+
+		pt = credentials.get_gateway_secret_strict(client_name)
+		if pt:
+			candidates.append(pt)
+	# Global is gated STRICTLY on the flag — never on a falsy client_name (that was a kill-switch
+	# bypass: an attacker sending client_name="" would get the global accepted even with the flag
+	# off). A caller with no resolvable client_name simply has no accepted secret → fail closed.
+	if _ACCEPT_GLOBAL_GATEWAY_SECRET:
+		glob = frappe.conf.get("sigzen_gateway_shared_secret")
+		if glob:
+			candidates.append(glob)
+	return candidates
+
+
+def validate_secret(secret, client_name=None):
+	"""Return (ok, error_message). Accept `secret` if it matches this identity's per-tenant
+	gateway_secret; during migration (or for a legacy no-client_name caller) also accept the
+	global shared secret. Constant-time. Passing client_name is the per-tenant path."""
+	candidates = _accepted_secrets(client_name)
+	if not candidates:
+		return False, "No gateway secret is configured for this client."
+	if not secret or not _secret_matches(secret, candidates):
+		return False, "Invalid or missing secret."
+	return True, None
+
+
+def _bootstrap_secrets(client_name):
+	"""Secrets accepted on the BOOTSTRAP endpoints (fetch_first_user, receive_secret) that
+	DELIVER this tenant's gateway_secret and so cannot authenticate with it. Uses this tenant's
+	api_secret (issued to the client at registration and stored via credentials.upsert_root
+	BEFORE any Central callback — Central holds the same value), plus its gateway_secret if
+	already present, plus the legacy global only while the migration flag is set."""
+	candidates = []
+	if client_name:
+		from sigzenbi_client import credentials
+
+		candidates.extend(credentials.get_api_secrets_all(client_name))
+		pt = credentials.get_gateway_secret_strict(client_name)
+		if pt:
+			candidates.append(pt)
+	if _ACCEPT_GLOBAL_GATEWAY_SECRET:
+		glob = frappe.conf.get("sigzen_gateway_shared_secret")
+		if glob:
+			candidates.append(glob)
+	return candidates
+
+
+def validate_bootstrap_secret(secret, client_name=None):
+	"""Return (ok, error_message) for the bootstrap endpoints — accept this tenant's api_secret
+	(or gateway_secret if already delivered), plus the global during migration. Constant-time."""
+	candidates = _bootstrap_secrets(client_name)
+	if not candidates:
+		return False, "No bootstrap credential is available for this client."
+	if not secret or not _secret_matches(secret, candidates):
+		return False, "Invalid or missing bootstrap secret."
+	return True, None
+
+
+def validate_client_name(client_name):
+	"""Return (ok, error_message). `client_name` must be one of THIS bench's actually-hosted
+	identities (multi-identity: primary + registered_client_names + SigzenBI Users email
+	prefixes), not just the single primary. The old single-primary check silently rejected
+	every non-primary tenant on a multi-identity bench."""
+	if not client_name:
+		return False, "client_name is required but was not provided."
+	from sigzenbi_client.API.gateway.poll_jobs import _candidate_client_names
+
+	if client_name not in _candidate_client_names():
+		return False, "client_name is not a hosted identity on this site."
+	return True, None
+
+
+def validate_gateway_request(secret=None, client_name=None):
+	# client_name first: it selects WHICH per-tenant secret validate_secret checks.
+	ok, err = validate_client_name(client_name)
+	if not ok:
+		return False, err
+
+	ok, err = validate_secret(secret, client_name=client_name)
+	if not ok:
+		return False, err
+
+	return True, None
+
+
+if __name__ == "__main__":
+	# Pure self-check for the constant-time multi-candidate compare (the security-critical core).
+	assert _secret_matches("abc", ["abc"]) is True
+	assert _secret_matches("abc", ["xxx", "abc"]) is True  # matches a non-first candidate
+	assert _secret_matches("abc", ["xxx", "yyy"]) is False
+	assert _secret_matches("abc", []) is False
+	assert _secret_matches("", ["abc"]) is False
+	assert _secret_matches(None, ["abc"]) is False
+	assert _secret_matches("abc", [None, "", "abc"]) is True  # skips falsy candidates
+	assert _secret_matches("abc", [None, ""]) is False
+	print("auth.py self-check OK")
