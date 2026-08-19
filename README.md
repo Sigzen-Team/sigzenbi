@@ -26,25 +26,28 @@ SigzenBI is a hosted analytics service for ERPNext. This app is the piece that r
 
 ```bash
 cd ~/frappe-bench
-bench get-app https://github.com/Sigzen-Team/sigzenbi_client.git
+bench get-app sigzenbi_client https://github.com/Sigzen-Team/sigzenbi.git
 bench --site your-site.com install-app sigzenbi_client
 ```
 
-Then point the agent at the hub and register it:
+> The explicit `sigzenbi_client` argument is required: the repository is named `sigzenbi`
+> but the Frappe app inside it is `sigzenbi_client`, and bench needs the app's real name to
+> place it at `apps/sigzenbi_client`. Omitting it clones to the wrong directory and the
+> install fails.
+
+Then open **`https://your-site.com/portal/signup`** in a browser and follow the steps —
+create your account, then register your database. That is the whole setup.
+
+Installing the app already points it at the SigzenBI hub and provisions a `SELECT`-only
+database user (`sigzen_ro`) for the query gateway to run as. If your bench does not permit
+that grant, installation still succeeds and the gateway falls back to the site's own
+database user — provision `sigzen_ro` manually to keep that layer of defence:
 
 ```bash
-./apps/sigzenbi_client/sigzenbi_client/install/install_agent.sh \
-  --site your-site.com \
-  --central-url https://central.sigzen.com \
-  --email you@yourcompany.com --password 'your-signup-password'
+bench --site your-site.com execute sigzenbi_client.install.setup_readonly_db.run
 ```
 
-The installer is idempotent — re-running it is a safe no-op once the agent is healthy. It
-also provisions a `SELECT`-only database user (`sigzen_ro`) that the query gateway runs as.
-If your bench does not permit that grant, the installer warns and continues; provision it
-manually to keep that layer of defence.
-
-Verify at any time with:
+Check the agent's health at any time:
 
 ```bash
 bench --site your-site.com execute sigzenbi_client.install.selfcheck.run
@@ -74,9 +77,9 @@ Please report vulnerabilities privately — see [SECURITY.md](sigzenbi_client/do
 
 ## Contributing
 
-Issues and pull requests are welcome. Please read
-[`sigzenbi_client/CLAUDE.md`](sigzenbi_client/CLAUDE.md) first — it documents the trust
-model and the invariants that must hold, particularly around authentication.
+Issues and pull requests are welcome. Please read the **Design notes for reviewers** in
+[SECURITY.md](sigzenbi_client/docs/SECURITY.md) first — they describe the trust model and
+the invariants that must hold, particularly around authentication.
 
 ## License
 

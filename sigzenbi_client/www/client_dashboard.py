@@ -340,7 +340,7 @@ def get_context(context):
                 "'/ai_chart'"
             )
             # 2026-07-10: self-serve AI monetization (credit packs + BYOK) -- browser
-            # must never hit the Central domain (root CLAUDE.md rule), so every Central
+            # must never hit the Central domain (architecture rule), so every Central
             # method these pages might call is rewritten to its client proxy here even
             # though client_dashboard.html itself doesn't call them yet -- this keeps
             # client_billing.html/nav 9) working without a second pass

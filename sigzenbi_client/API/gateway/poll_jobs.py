@@ -452,7 +452,7 @@ def check_and_start_polling_loop():
 
     # Only spawn/respawn a loop for a name that actually has an active credential
     # on Central — a login existing is not, on its own, sufficient reason to poll
-    # Central forever (see CLAUDE.md: this was the direct cause of unbounded
+    # Central forever (this was the direct cause of unbounded
     # process buildup from old test signups). Fail open (don't filter) if Central
     # can't be reached right now, rather than stop respawning legitimate loops.
     active = _fetch_active_client_names()
