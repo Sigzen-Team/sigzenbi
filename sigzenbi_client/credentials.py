@@ -138,7 +138,7 @@ def set_gateway_secret(client_name, secret):
     Upsert the per-client_name transport secret this identity's polling agent
     uses to authenticate to Central's gateway endpoints (pending_query,
     submit_query_result, heartbeat). Stored encrypted, one row per client_name
-    — the per-tenant replacement for the shared gateway_shared_secret (C3).
+    — the per-tenant replacement for the shared gateway_shared_secret.
 
     Uses raw frappe.db.exists + set_encrypted_password (no doc.save()) for the
     same concurrency reasons as save_rotated()/upsert_root(). Never logs the secret.

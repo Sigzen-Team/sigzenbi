@@ -10,7 +10,7 @@ Idempotent — safe to re-run. Egress-only — opens no inbound port.
 ```bash
 cd /path/to/frappe-bench
 bash apps/sigzenbi_client/sigzenbi_client/install/install_agent.sh \
-  --central-url https://sigzenbi-central.sigzenone.com \
+  --central-url https://central.sigzen.com \
   --site your-site.example.com
 ```
 

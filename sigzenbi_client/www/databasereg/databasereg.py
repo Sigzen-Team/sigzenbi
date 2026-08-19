@@ -11,6 +11,48 @@ import re
 # still applies on a path that returns or redirects early.
 no_cache = True
 
+# The DB-registration and subscription proxies below act with THIS SITE'S stored Central
+# credentials and mutate this site's registration state. They are setup actions performed
+# by the person who installed the app, so they require a real, privileged session on this
+# site -- not merely "the subscription is Active", which is a property of the tenant, not
+# of the caller.
+SETUP_ROLES = ("System Manager", "Administrator")
+
+
+def require_site_operator():
+    """Fail closed unless the caller holds a privileged session on THIS Frappe site.
+
+    Guest-callable setup endpoints previously trusted `subscription_status == "Active"`,
+    which every anonymous visitor satisfies once the tenant is live."""
+    user = frappe.session.user
+    if not user or user == "Guest":
+        frappe.throw("Not permitted", frappe.PermissionError)
+    if user == "Administrator":
+        return user
+    roles = set(frappe.get_roles(user))
+    if not roles.intersection(SETUP_ROLES):
+        frappe.throw("Not permitted", frappe.PermissionError)
+    return user
+
+
+def _masked_db_config():
+    """What the setup FORM is allowed to show. Never the real password.
+
+    This page used to render sites/<site>/site_config.json's db_user/db_name/db_host and
+    the live `db_password` into input values, on a www page with no login gate -- so any
+    anonymous visitor to /databasereg/databasereg received this site's full MariaDB
+    credentials in the HTML source (`type="password"` masks the glyphs, not the markup).
+    Nothing needs them client-side: get_database_credentials() overwrites all four from
+    site_config server-side before forwarding (the 2026-08-02 server-authoritative change),
+    so the browser's copy was display-only. Display a placeholder instead."""
+    return {
+        "db_host": frappe.conf.get("db_host") or "127.0.0.1",
+        "db_name": "(configured automatically)",
+        "db_user": "(configured automatically)",
+        "db_password": "",
+    }
+
+
 def _get_client_site_db_config():
 	"""Database credentials from this client bench site (sites/<site>/site_config.json)."""
 	return {
@@ -88,6 +130,9 @@ def _rewrite_database_api_url(html, base_url, browser_base_url, client_api_url):
 
 
 def get_context(context):
+    # Operator-only: this page renders a setup form for the person who installed the app.
+    require_site_operator()
+
     # Ensure client has activated the plan
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')
     if status != "Active":
@@ -101,8 +146,8 @@ def get_context(context):
 
 
     
-    # Auto-fetch from this client site's site_config.json (e.g. sites/sigzenbi/site_config.json)
-    db_config = _get_client_site_db_config()
+    # Display-only, masked. The real values are read server-side on submit -- never rendered.
+    db_config = _masked_db_config()
     context.auto_db_name = db_config["db_name"]
     context.auto_db_password = db_config["db_password"]
     context.auto_db_host = db_config["db_host"]
@@ -231,6 +276,10 @@ def parse_response(response):
 
 @frappe.whitelist(allow_guest=True)
 def get_database_credentials(**kwargs):
+    # allow_guest only opens the door; this is the authenticator. Without it any
+    # anonymous caller could drive this site's credentialed call to Central and append
+    # attacker-chosen names to `registered_client_names` (a confused deputy).
+    require_site_operator()
     try:
         base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
         if base_url and not base_url.endswith('/'):

@@ -1,8 +1,6 @@
 # Setup
 
-This app is the on-site client of the hosted SigzenBI service.
+See the [README](README.md) for installation, configuration, and verification.
 
-- **Customer installation** (Frappe Cloud or self-hosted bench): see the README and
-  https://sigzenbi.com/docs — no manual configuration is required.
-- **Platform-internal deployment notes** (Central, analytics engine, gateway ops) live in
-  the private ops documentation, not in this repository.
+Platform-internal deployment notes (hub, analytics engine, gateway operations) are not part
+of this repository.

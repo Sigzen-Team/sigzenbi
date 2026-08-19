@@ -28,7 +28,7 @@ def _client_name():
 
 def _secret(client_name=None):
     """Transport secret for a gateway call. With a client_name, returns that
-    tenant's per-client_name gateway_secret (C3), falling back to the shared
+    tenant's per-client_name gateway_secret, falling back to the shared
     singleton during migration. Without one (the active-clients listing, which
     is intentionally global), returns the shared singleton directly."""
     if client_name:

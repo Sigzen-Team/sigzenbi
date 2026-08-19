@@ -61,6 +61,64 @@ class TestLiteralsAreInert(unittest.TestCase):
                 allowed, _ = ok(sql)
                 self.assertFalse(allowed, sql)
 
+    def test_session_and_credential_tables_are_blocked(self):
+        """`tabSessions` hands out live session cookies; the OAuth/webhook/integration
+        tables hand out tokens and third-party credentials. A statement-type blocklist
+        alone lets every one of these through as an ordinary SELECT."""
+        for sql in (
+            "SELECT sid, user FROM tabSessions",
+            "SELECT * FROM tabSessions WHERE user = 'Administrator'",
+            "SELECT * FROM `tabOAuth Bearer Token`",
+            "SELECT * FROM `tabOAuth Client`",
+            "SELECT * FROM `tabToken Cache`",
+            "SELECT * FROM `tabIntegration Request`",
+            "SELECT * FROM `tabConnected App`",
+            "SELECT * FROM `tabSocial Login Key`",
+            "SELECT * FROM `tabEmail Account`",
+            "SELECT * FROM `tabError Log`",
+            'SELECT * FROM "tabSessions"',
+            "select/*x*/sid from tab/**/Sessions",
+        ):
+            with self.subTest(sql):
+                allowed, _ = ok(sql)
+                self.assertFalse(allowed, sql)
+
+    def test_server_admin_schemas_are_blocked(self):
+        for sql in ("SELECT * FROM mysql.user", "SELECT * FROM performance_schema.threads"):
+            with self.subTest(sql):
+                allowed, _ = ok(sql)
+                self.assertFalse(allowed, sql)
+
+    def test_information_schema_stays_allowed(self):
+        """Superset's dialect introspects table/column metadata through it, and it
+        exposes schema shape only -- no row data, no credentials."""
+        allowed, _ = ok("SELECT table_name FROM information_schema.tables")
+        self.assertTrue(allowed)
+
+    def test_the_whole_tabUser_family_stays_blocked(self):
+        """member_scope._flatten_blocked_subqueries and the dedicated off-gateway
+        endpoints (erp_users, member_permissions) all exist BECAUSE the gateway refuses
+        the tabUser family. Un-blocking `tabUser Permission` would silently re-route the
+        member row-security path, so this is pinned."""
+        for sql in (
+            "SELECT * FROM `tabUser Permission`",
+            "SELECT * FROM `tabUser Group`",
+            "SELECT user, allow FROM `tabUser Permission` WHERE user = 'a@b.com'",
+        ):
+            with self.subTest(sql):
+                allowed, _ = ok(sql)
+                self.assertFalse(allowed, sql)
+
+    def test_business_doctypes_are_not_caught_by_the_family_block(self):
+        for sql in (
+            "SELECT * FROM `tabSales Invoice`",
+            "SELECT * FROM tabCustomer",
+            "SELECT * FROM `tabUOM Conversion Detail`",
+        ):
+            with self.subTest(sql):
+                allowed, err = ok(sql)
+                self.assertTrue(allowed, f"{sql} -> {err}")
+
 
 if __name__ == "__main__":
     unittest.main()

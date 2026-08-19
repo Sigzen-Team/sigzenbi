@@ -9,6 +9,11 @@ import requests
 no_cache = True
 
 def get_context(context):
+    # Operator-only, same as /databasereg: a setup page, not a public page.
+    from sigzenbi_client.www.databasereg.databasereg import require_site_operator
+
+    require_site_operator()
+
     # Ensure client has activated the plan
     status = frappe.db.get_single_value('SigzenBI Subscription Settings', 'subscription_status')
     if status != "Active":

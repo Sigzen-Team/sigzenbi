@@ -17,22 +17,71 @@ BLOCKED_KEYWORDS = re.compile(
 _INTO_FILE_RE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
 # This gateway is meant for BI/analytics queries against business doctypes — it has no
-# legitimate reason to read Frappe's own auth/credential tables. A read-only statement
-# blocklist alone still allows e.g. `SELECT * FROM __Auth` (password hashes) or
-# `SELECT * FROM tabUser` (API keys, session fields) or `tabSingles` (which holds the
-# encrypted SigzenBI Subscription Settings / SigzenBI Settings credentials). Block these
-# regardless of statement type. Matches both bare identifiers (`tabUser`, real SQL syntax
-# doesn't allow embedded spaces there, so this can't false-positive on a differently named
-# table) and quoted-and-immediately-closed identifiers (`` `tabUser` ``/`"tabUser"`) —
-# deliberately does NOT match longer names like `tabUser Permission` that merely start
-# with the same prefix, since Frappe's own tables commonly use spaces in their names.
-_SENSITIVE_TABLES = ("__Auth", "tabUser", "tabSingles")
-_SENSITIVE_TABLE_RE = re.compile(
-	r"(\b(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")\b"
-	r"|`(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")`"
-	r"|\"(?:" + "|".join(re.escape(t) for t in _SENSITIVE_TABLES) + r")\")",
-	re.IGNORECASE,
+# legitimate reason to read Frappe's own auth/credential/session tables. A read-only
+# statement blocklist alone still allows e.g. `SELECT * FROM __Auth` (password hashes),
+# `SELECT * FROM tabUser` (API keys), `tabSingles` (encrypted settings) or
+# `SELECT sid FROM tabSessions` (live session cookies — a session-hijack primitive).
+# Block these regardless of statement type.
+#
+# Matching is done on EXTRACTED IDENTIFIERS, not a substring regex, so a name containing a
+# space (which SQL requires to be quoted) can be listed exactly. The old `\btabUser\b`
+# alternation could not express those at all.
+#
+# The whole `tabUser*` family stays blocked, via _SENSITIVE_PREFIXES rather than by
+# accident. The previous regex blocked `tabUser Permission` and `tabUser Group` as a side
+# effect of `\b` treating a space as a word boundary, and two things now DEPEND on that:
+# member_scope._flatten_blocked_subqueries resolves `IN (SELECT ... FROM \`tabUser
+# Permission\`)` into literal IN-lists precisely because the gateway would refuse it, and
+# erp_users.py / member_permissions.py exist as dedicated off-gateway endpoints for the
+# same reason. Making the match "precise" here would silently change the member row-security
+# path, so the family block is now stated on purpose instead of inherited from a quirk.
+_SENSITIVE_TABLES = (
+	"__Auth",
+	"tabUser",
+	"tabSingles",
+	"tabSessions",
+	"tabOAuth Bearer Token",
+	"tabOAuth Authorization Code",
+	"tabOAuth Client",
+	"tabToken Cache",
+	"tabConnected App",
+	"tabSocial Login Key",
+	"tabWebhook",
+	"tabWebhook Request Log",
+	"tabIntegration Request",
+	"tabEmail Account",
+	"tabError Log",
+	"tabAccess Log",
 )
+_SENSITIVE_LOWER = frozenset(t.lower() for t in _SENSITIVE_TABLES)
+
+# Identifier prefixes blocked as a family (see the note above).
+_SENSITIVE_PREFIXES = ("tabuser",)
+
+# Quoted identifiers are captured WHOLE (so `tabUser Permission` is one name, not two);
+# bare identifiers can never contain a space, so a plain word token is enough for them.
+_IDENT_RE = re.compile(r'`([^`]*)`|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*)')
+
+
+def _identifiers(sql):
+	for m in _IDENT_RE.finditer(sql):
+		yield m.group(1) or m.group(2) or m.group(3) or ""
+
+
+def _is_sensitive_identifier(ident):
+	low = ident.lower()
+	return low in _SENSITIVE_LOWER or low.startswith(_SENSITIVE_PREFIXES)
+
+
+def _sensitive_table_used(sql):
+	return any(_is_sensitive_identifier(ident) for ident in _identifiers(sql))
+
+
+# Cross-schema reads. The gateway serves ONE schema (this site's own); a qualified
+# reference to a server-admin schema is never a BI query. `information_schema` is
+# deliberately NOT blocked — Superset's dialect introspects table/column metadata
+# through it, and it exposes schema shape only, no row data or credentials.
+_ADMIN_SCHEMA_RE = re.compile(r"\b(mysql|performance_schema|sys)\s*\.", re.IGNORECASE)
 
 # Per-query timeout (seconds) so a holder of a valid gateway secret can't tie up the
 # database with SLEEP()/BENCHMARK()/expensive scans — a statement-type blocklist can't
@@ -126,8 +175,11 @@ def is_read_only_sql(sql):
 	if _INTO_FILE_RE.search(executable_sql):
 		return False, "SELECT INTO OUTFILE/DUMPFILE is not allowed."
 
-	if _SENSITIVE_TABLE_RE.search(executable_sql):
+	if _sensitive_table_used(executable_sql):
 		return False, "Querying Frappe's core auth/settings tables through this gateway is not allowed."
+
+	if _ADMIN_SCHEMA_RE.search(executable_sql):
+		return False, "Querying server administration schemas through this gateway is not allowed."
 
 	return True, None
 
