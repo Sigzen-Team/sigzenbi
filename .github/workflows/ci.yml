@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static:
+    name: Lint and static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Byte-compile every module
+        run: python -m compileall -q sigzenbi_client
+
+      - name: Shell syntax
+        run: bash -n sigzenbi_client/install/install_agent.sh
+
+      - name: Pure self-checks (no Frappe required)
+        run: python sigzenbi_client/API/gateway/auth.py
+
+      - name: Semgrep (Frappe rules)
+        run: |
+          pip install semgrep
+          git clone --depth 1 https://github.com/frappe/semgrep-rules.git /tmp/frappe-semgrep-rules
+          semgrep scan --config /tmp/frappe-semgrep-rules/rules --error sigzenbi_client
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

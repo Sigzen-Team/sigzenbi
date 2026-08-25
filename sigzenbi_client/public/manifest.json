@@ -1,0 +1,21 @@
+{
+  "name": "SigzenBI",
+  "short_name": "SigzenBI",
+  "description": "Business Intelligence for ERPNext",
+  "start_url": "/client_dashboard",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#223552",
+  "theme_color": "#223552",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/assets/sigzenbi_client/images/sigzenbi-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
