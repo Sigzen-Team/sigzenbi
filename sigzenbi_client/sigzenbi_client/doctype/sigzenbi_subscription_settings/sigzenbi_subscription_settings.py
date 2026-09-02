@@ -38,10 +38,13 @@ class SigzenBISubscriptionSettings(Document):
 
 		Every SANCTIONED writer reaches these fields without the Document layer --
 		`after_install.py` and `fetch_first_user.py` use `frappe.db.set_value`, `databasereg.py`
-		writes `tabSingles` directly, and the only `.save()` on this single (`register.py`, on a
-		successful registration) touches `subscription_status`, which is not guarded. So this
-		blocks the REST/Desk path and nothing else. `frappe.flags.sigzen_settings_provisioning`
-		is the escape hatch if a future server-side path ever does need the Document layer.
+		writes `tabSingles` directly. `register.py` has two `.save()`s on this single:
+		`fetch_client_subscription` touches only `subscription_status` (not guarded), and
+		`get_client_credentials` sets `client_name` on the very first registration -- that
+		bootstrap runs under `frappe.flags.sigzen_settings_provisioning`, the escape hatch for
+		sanctioned server-side writers that need the Document layer. So this guard blocks the
+		REST/Desk path and nothing else. (An earlier version of this docstring claimed no save
+		touched a guarded field; that missed the bootstrap and broke production signup 2026-09-02.)
 		"""
 		if frappe.flags.in_install or frappe.flags.in_migrate or frappe.flags.in_patch:
 			return

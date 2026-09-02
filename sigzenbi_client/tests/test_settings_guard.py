@@ -69,6 +69,21 @@ class TestSubscriptionSettingsGuard(FrappeTestCase):
 			"Active",
 		)
 
+	def test_first_registration_bootstrap_can_set_client_name(self):
+		"""register.py's get_client_credentials sets client_name on the very FIRST
+		registration, under the provisioning flag. Live 2026-09-02: without the flag the
+		guard threw on production signup AFTER Central had already committed, orphaning
+		the Central records -- the exact 'worse than the hole' failure the module
+		docstring warns about, missed because only subscription_status was tested."""
+		doc = frappe.get_single("SigzenBI Subscription Settings")
+		doc.client_name = "GuardBootstrapProbe"
+		frappe.flags.sigzen_settings_provisioning = True
+		try:
+			doc.save(ignore_permissions=True)   # must NOT raise
+		finally:
+			frappe.flags.sigzen_settings_provisioning = False
+		frappe.db.rollback()
+
 	def test_the_sanctioned_db_set_value_path_is_untouched(self):
 		"""after_install.py and fetch_first_user.py write these fields with frappe.db.set_value,
 		which bypasses the Document layer by design. Provisioning must keep working."""

@@ -233,7 +233,15 @@ def get_client_credentials(**kwargs):
 
             if client_name:
                 settings.client_name = client_name
-            settings.save(ignore_permissions=True)
+            # First-registration bootstrap is a sanctioned writer of the guarded
+            # client_name field -- go through the guard's provisioning escape hatch.
+            # Without it the guard throws HERE, after Central has already committed
+            # the registration, orphaning the Central records (live 2026-09-02).
+            frappe.flags.sigzen_settings_provisioning = True
+            try:
+                settings.save(ignore_permissions=True)
+            finally:
+                frappe.flags.sigzen_settings_provisioning = False
             frappe.db.commit()
 
             # Credentials are stored per-client_name (SigzenBI Client Credential),
