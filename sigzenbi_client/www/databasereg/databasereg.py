@@ -158,6 +158,9 @@ def get_context(context):
 
     context.csrf_token = frappe.sessions.get_csrf_token()
     context.api_get_database_credentials_url = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_database_credentials"
+    # The Central template also fetches api_get_local_db_config_url on load; its default is a
+    # sigzenbi_central.* URL that 500s on this client bench. Point it at the local method below.
+    context.api_get_local_db_config_url = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_local_site_db_config"
     context.plans_url = "/client_plans"
 
     central_html = ""
@@ -191,6 +194,21 @@ def get_context(context):
                 browser_base_url,
                 context.api_get_database_credentials_url,
             )
+
+            # get_local_site_db_config: Central pre-renders ITS url into this page (the client
+            # fetches the already-rendered /databasereg/databasereg), and Central's method 500s on
+            # a client bench that has no sigzenbi_central app. Swap it for the client-local method,
+            # exactly like the get_database_credentials rewrite above.
+            _central_localcfg = "api/method/sigzenbi_central.API.fetch_database_credentials.get_local_site_db_config"
+            _client_localcfg = "/api/method/sigzenbi_client.www.databasereg.databasereg.get_local_site_db_config"
+            _prefixes = ["/", base_url]
+            if browser_base_url != base_url:
+                _prefixes.append(browser_base_url)
+            for _pfx in _prefixes:
+                for _q in ("'", '"'):
+                    central_html = central_html.replace(
+                        f"{_q}{_pfx}{_central_localcfg}{_q}", f"{_q}{_client_localcfg}{_q}"
+                    )
             
             # Rewrite redirect to /thanks to /thankyou for the client app
             central_html = central_html.replace("window.location.href = '/thanks'", "window.location.href = '/thankyou'")
@@ -212,8 +230,48 @@ def get_context(context):
         except Exception as e:
             frappe.log_error(title="databasereg", message=f"Error rendering central databasereg template: {e}")
             context.central_html = central_html  # fallback to raw if template rendering fails
-            
+
+    # CSRF: the client fetches Central's ALREADY-RENDERED databasereg page, so {{ csrf_token }}
+    # was baked with CENTRAL's session token -- invalid for the credentialed get_database_credentials
+    # POST to THIS site (CSRFTokenError). Force this client session's token; the form reads
+    # document.cookie/csrf_token first, then window.frappe.csrf_token.
+    _tok = context.csrf_token or ""
+    context.central_html = (
+        "<script>try{document.cookie='csrf_token='+encodeURIComponent(" + repr(_tok) + ")+';path=/;samesite=Lax';}catch(e){}"
+        "window.frappe=window.frappe||{};window.frappe.csrf_token=" + repr(_tok) + ";</script>\n"
+        + (context.central_html or "")
+    )
     return context
+
+
+@frappe.whitelist(allow_guest=True)
+def get_local_site_db_config():
+    """Return THIS client bench's DB connection fields for the databasereg form.
+
+    Central's own get_local_site_db_config cannot run here (no sigzenbi_central app on a client
+    bench), so the client serves its own. Values are MASKED exactly like the Jinja prefill
+    (_masked_db_config): the gateway executes against frappe.conf and get_database_credentials
+    re-derives the real values server-side, so the browser never needs -- and must never see --
+    the real DB password. API credentials are deliberately NOT returned: call_central_api signs
+    the submit with the per-client_name stored credential, so the browser holds no copy.
+    """
+    require_site_operator()
+    cfg = _masked_db_config()
+    client_port = None
+    try:
+        from sigzenbi_client.utils import get_client_url_and_port
+        _url, client_port = get_client_url_and_port()
+    except Exception:
+        pass
+    return {
+        "status": "success",
+        "db_host": cfg["db_host"],
+        "db_name": cfg["db_name"],
+        "db_user": cfg["db_user"],
+        "db_password": cfg["db_password"],
+        "db_type": "mariadb",
+        "client_port": client_port,
+    }
 
 
 def parse_response(response):
