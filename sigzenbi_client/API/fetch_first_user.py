@@ -41,7 +41,13 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
             from sigzenbi_client import credentials as client_credentials
             client_credentials.set_gateway_secret(client_name, gateway_secret)
 
-        # Create Frappe User if it doesn't exist
+        # Create a portal-only Frappe User if this email is new to the site. The password
+        # is set ONLY on that freshly created account: this is the customer's own ERPNext,
+        # and the signup email is very often an existing System User there. Setting it
+        # unconditionally overwrote that user's real Desk password with the random
+        # analytics password on every signup (live 2026-09-11, pulse, twice). Nothing on
+        # this site authenticates the ERPNext user with this password -- portal auth is the
+        # central_sid session -- so an existing account is left exactly as it was.
         if not frappe.db.exists("User", email):
             user_doc = frappe.get_doc({
                 "doctype": "User",
@@ -52,8 +58,7 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
                 "send_welcome_email": 0,
             })
             user_doc.insert(ignore_permissions=True)
-
-        update_password(email, password)
+            update_password(email, password)
 
         # Create or update SigzenBI Users
         frappe.flags.in_fetch_first_user = True
