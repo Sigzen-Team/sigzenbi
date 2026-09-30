@@ -528,7 +528,7 @@ def send_message(message=None, chat_id=None, client_name=None, **kwargs):
 	)
 
 
-def _send_chat(method, message, chat_id):
+def _send_chat(method, message, chat_id, edit=None):
 	"""Shared forwarder for the two product send paths.
 
 	ONE body, because the only thing that differs is which Central method is called --
@@ -543,6 +543,10 @@ def _send_chat(method, message, chat_id):
 			"message": str(message).strip()}
 	if chat_id:
 		payload["chat_id"] = chat_id
+	if edit:
+		# A click on a Matched option / chip (Central Prompt 3). Opaque here: Central parses and
+		# re-validates it like any typed question.
+		payload["edit"] = edit if isinstance(edit, str) else frappe.as_json(edit)
 	return _call_central_ai(
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{method}",
 		payload=payload, method="POST", timeout=180,
@@ -552,13 +556,13 @@ def _send_chat(method, message, chat_id):
 @frappe.whitelist(allow_guest=True)
 def send_build_message(message=None, chat_id=None, client_name=None, **kwargs):
 	"""BUILD chat -- dashboards and charts. Analyst seat, NO SigzenAI licence."""
-	return _send_chat("send_build_message", message, chat_id)
+	return _send_chat("send_build_message", message, chat_id, kwargs.get("edit"))
 
 
 @frappe.whitelist(allow_guest=True)
 def send_interactive_message(message=None, chat_id=None, client_name=None, **kwargs):
 	"""ASK AI -- conversational analysis. Requires a SigzenAI licence (asserted on Central)."""
-	return _send_chat("send_interactive_message", message, chat_id)
+	return _send_chat("send_interactive_message", message, chat_id, kwargs.get("edit"))
 
 
 @frappe.whitelist(allow_guest=True)
@@ -588,6 +592,58 @@ def rename_chat(chat_id=None, title=None, client_name=None, **kwargs):
 		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.rename_chat",
 		payload={"client_name": _get_client_name(), "chat_user": chat_user,
 		         "chat_id": chat_id, "title": title},
+		method="POST", timeout=30,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def coach_answer(chat_id=None, turn_id=None, panel_index=0, metric=None, client_name=None, **kwargs):
+	"""Coaching click on an answer (Central Prompt 5). Central reads the answer from the stored
+	chat and re-checks everything; this only forwards the ids."""
+	chat_user = _proxy_auth()
+	if not chat_id or not turn_id:
+		frappe.throw(_("chat_id and turn_id are required."))
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id,
+	           "turn_id": turn_id, "panel_index": panel_index}
+	if metric:
+		payload["metric"] = metric
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.coach_answer",
+		payload=payload, method="POST", timeout=30,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def save_plan_panel(chat_id=None, version=None, n=None, client_name=None, **kwargs):
+	"""Build plan card "Save as chart" on one panel (Central Prompt 7 amendment 1). Central takes the
+	panel from the stored plan and re-checks everything; this only forwards the ids."""
+	chat_user = _proxy_auth()
+	if not chat_id or version is None or n is None:
+		frappe.throw(_("chat_id, version and n are required."))
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.save_plan_panel",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id,
+		         "version": version, "n": n},
+		method="POST", timeout=60,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def get_preferences(client_name=None, **kwargs):
+	chat_user = _proxy_auth()
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.get_preferences",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user}, method="GET", timeout=30,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
+def save_preferences(company=None, year_basis=None, period=None, unit=None, client_name=None, **kwargs):
+	chat_user = _proxy_auth()
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.save_preferences",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user, "company": company or "",
+		         "year_basis": year_basis or "", "period": period or "", "unit": unit or ""},
 		method="POST", timeout=30,
 	)
 
