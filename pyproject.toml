@@ -1,5 +1,5 @@
 [project]
-name = "sigzenbi_client"
+name = "sigzenbi"
 authors = [
     { name = "SigzenBI", email = "info@sigzenbi.com" }
 ]

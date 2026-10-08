@@ -26,13 +26,13 @@ SigzenBI is a hosted analytics service for ERPNext. This app is the piece that r
 
 ```bash
 cd ~/frappe-bench
-bench get-app sigzenbi_client https://github.com/Sigzen-Team/sigzenbi.git
-bench --site your-site.com install-app sigzenbi_client
+bench get-app sigzenbi https://github.com/Sigzen-Team/sigzenbi.git
+bench --site your-site.com install-app sigzenbi
 ```
 
-> The explicit `sigzenbi_client` argument is required: the repository is named `sigzenbi`
-> but the Frappe app inside it is `sigzenbi_client`, and bench needs the app's real name to
-> place it at `apps/sigzenbi_client`. Omitting it clones to the wrong directory and the
+> The explicit `sigzenbi` argument is required: the repository is named `sigzenbi`
+> but the Frappe app inside it is `sigzenbi`, and bench needs the app's real name to
+> place it at `apps/sigzenbi`. Omitting it clones to the wrong directory and the
 > install fails.
 
 Then open **`https://your-site.com/portal/signup`** in a browser and follow the steps —
@@ -44,13 +44,13 @@ that grant, installation still succeeds and the gateway falls back to the site's
 database user — provision `sigzen_ro` manually to keep that layer of defence:
 
 ```bash
-bench --site your-site.com execute sigzenbi_client.install.setup_readonly_db.run
+bench --site your-site.com execute sigzenbi.install.setup_readonly_db.run
 ```
 
 Check the agent's health at any time:
 
 ```bash
-bench --site your-site.com execute sigzenbi_client.install.selfcheck.run
+bench --site your-site.com execute sigzenbi.install.selfcheck.run
 ```
 
 ## Configuration
@@ -73,12 +73,12 @@ and credential tables.
 
 ## Security
 
-Please report vulnerabilities privately — see [SECURITY.md](sigzenbi_client/docs/SECURITY.md).
+Please report vulnerabilities privately — see [SECURITY.md](sigzenbi/docs/SECURITY.md).
 
 ## Contributing
 
 Issues and pull requests are welcome. Please read the **Design notes for reviewers** in
-[SECURITY.md](sigzenbi_client/docs/SECURITY.md) first — they describe the trust model and
+[SECURITY.md](sigzenbi/docs/SECURITY.md) first — they describe the trust model and
 the invariants that must hold, particularly around authentication.
 
 ## License
