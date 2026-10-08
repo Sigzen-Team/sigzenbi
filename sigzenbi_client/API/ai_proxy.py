@@ -629,6 +629,21 @@ def save_plan_panel(chat_id=None, version=None, n=None, client_name=None, **kwar
 
 
 @frappe.whitelist(allow_guest=True)
+def save_answer_chart(chat_id=None, turn_id=None, panel_index=0, client_name=None, **kwargs):
+	"""Build "Save as chart" under an answer. Central takes the panel from the stored turn and
+	re-checks everything; this only forwards the ids."""
+	chat_user = _proxy_auth()
+	if not chat_id or not turn_id:
+		frappe.throw(_("chat_id and turn_id are required."))
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.save_answer_chart",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user, "chat_id": chat_id,
+		         "turn_id": turn_id, "panel_index": panel_index},
+		method="POST", timeout=90,
+	)
+
+
+@frappe.whitelist(allow_guest=True)
 def get_preferences(client_name=None, **kwargs):
 	chat_user = _proxy_auth()
 	return _call_central_ai(
