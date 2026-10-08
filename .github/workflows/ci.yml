@@ -16,19 +16,19 @@ jobs:
           python-version: "3.11"
 
       - name: Byte-compile every module
-        run: python -m compileall -q sigzenbi_client
+        run: python -m compileall -q sigzenbi
 
       - name: Shell syntax
-        run: bash -n sigzenbi_client/install/install_agent.sh
+        run: bash -n sigzenbi/install/install_agent.sh
 
       - name: Pure self-checks (no Frappe required)
-        run: python sigzenbi_client/API/gateway/auth.py
+        run: python sigzenbi/API/gateway/auth.py
 
       - name: Semgrep (Frappe rules)
         run: |
           pip install semgrep
           git clone --depth 1 https://github.com/frappe/semgrep-rules.git /tmp/frappe-semgrep-rules
-          semgrep scan --config /tmp/frappe-semgrep-rules/rules --error sigzenbi_client
+          semgrep scan --config /tmp/frappe-semgrep-rules/rules --error sigzenbi
 
   secrets:
     name: Secret scan
