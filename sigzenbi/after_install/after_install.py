@@ -70,8 +70,8 @@ def ensure_desktop_icon():
     the add_to_apps_screen hook. Frappe's own after_app_install DOES call create_desktop_icons(),
     but its bulk App-icon existence check is broken (tries to re-insert existing App icons ->
     IntegrityError on multi-app installs), so it can crash before reaching this app. Do it here,
-    idempotently. The Workspace it links to (/desk/sigzenbi) ships as a synced file under
-    sigzenbi/workspace/sigzenbi/. Safe to re-run."""
+    idempotently. The tile links to /sigzenbi (www/sigzenbi.py), which redirects by role: System
+    Manager to the Workspace (/desk/sigzenbi), everyone else to the portal. Safe to re-run."""
     if frappe.db.exists("Desktop Icon", {"app": "sigzenbi", "icon_type": "App"}):
         return
     details = frappe.get_hooks("add_to_apps_screen", app_name="sigzenbi")
@@ -86,7 +86,10 @@ def ensure_desktop_icon():
     icon.icon_type = "App"
     icon.link_type = "External"
     icon.app = "sigzenbi"
-    icon.link = d.get("route")
+    # NOT d.get("route"): the hook route must stay under /desk/ (frappe.apps.is_desk_apps -- one
+    # non-desk route flips every user's post-login landing from /desk to /apps), but the Workspace
+    # behind it is hidden from non-System-Managers, so the tile goes through the role redirect.
+    icon.link = "/sigzenbi"
     icon.logo_url = d.get("logo")
     # standard=1 IS DELIBERATE, and do not "fix" the churn it causes.
     #
