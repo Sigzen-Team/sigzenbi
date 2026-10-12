@@ -36,7 +36,7 @@ def render_signup(context):
     # Re-showing the self-serve form is confusing and a re-submit re-provisions/overwrites,
     # so send an already-registered visitor straight to the login instead of the form.
     if frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name'):
-        frappe.local.flags.redirect_location = "/portal/login"
+        frappe.local.flags.redirect_location = "/desk"
         raise frappe.Redirect
 
     # Signup is OPERATOR-ONLY (founder decision 2026-09-02): registration binds this whole

@@ -39,7 +39,7 @@ def render_chat(context, kind):
 
 	if not client_user:
 		from sigzenbi.utils import redirect_without_port
-		redirect_without_port("/portal/login")
+		redirect_without_port("/desk")
 
 	# LAPSED -> PAYWALL (founder, 2026-08-13). Both chats are already REFUSED at the API for a
 	# lapsed tenant (chat_api._gate -> entitlements.require_active_subscription); without this

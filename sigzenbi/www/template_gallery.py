@@ -13,7 +13,7 @@ def get_context(context):
 
     if not client_user:
         from sigzenbi.utils import redirect_without_port
-        redirect_without_port("/portal/login")
+        redirect_without_port("/desk")
 
     base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
     if base_url and not base_url.endswith("/"):

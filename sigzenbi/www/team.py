@@ -21,7 +21,7 @@ def get_context(context):
 
     if not client_user:
         from sigzenbi.utils import redirect_without_port
-        redirect_without_port("/portal/login")
+        redirect_without_port("/desk")
 
     context.user_email = client_user
     # Client csrf so the same-origin POSTs to the proxies carry a valid token
