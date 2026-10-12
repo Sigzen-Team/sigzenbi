@@ -19,7 +19,7 @@ def get_context(context):
 
     if not client_user:
         from sigzenbi.utils import redirect_without_port
-        redirect_without_port("/portal/login")
+        redirect_without_port("/desk")
 
     context.user_email = client_user
     context.user_name = frappe.db.get_value("User", client_user, "full_name") or client_user
