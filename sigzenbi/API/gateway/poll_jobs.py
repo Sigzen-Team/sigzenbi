@@ -233,14 +233,20 @@ def poll_and_execute_jobs(client_name=None):
             job = data.get("job")
             if job:
                 _execute_and_submit(central_url, client_name, secret, job)
-
-            # Brief pause after a clean cycle (job executed, or a normal "no job"
-            # after the server's 25s wait) so this loop periodically releases its
-            # Central web worker instead of re-polling with zero delay forever.
-            # With several client identities long-polling concurrently against a
-            # small worker pool, back-to-back polling can starve unrelated quick
-            # requests (login, client_plans, etc.) even when nothing is broken.
-            time.sleep(2)
+            else:
+                # Brief pause after an IDLE cycle (a normal "no job" after the server's 25s
+                # wait) so this loop periodically releases its Central web worker instead of
+                # re-polling with zero delay forever. With several client identities
+                # long-polling concurrently against a small worker pool, back-to-back polling
+                # can starve unrelated quick requests (login, client_plans, etc.) even when
+                # nothing is broken.
+                #
+                # NOT after a job: a dashboard queues one query per chart and this loop runs
+                # them one at a time, so a pause there was paid by EVERY chart in turn
+                # (measured 2026-10-12: 2.1s per query whatever the SQL, the 8th of 8 queued
+                # queries answered after 17s). Fall through to the connection refresh below
+                # and ask for the next one straight away.
+                time.sleep(2)
 
         except requests.exceptions.RequestException:
             # Expected timeout or network jitter

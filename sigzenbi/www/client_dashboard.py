@@ -191,7 +191,7 @@ def get_context(context):
     # Redirect to client_login if still not logged in (no BI cookies, no vouch-able session)
     if not client_user:
         from sigzenbi.utils import redirect_without_port
-        redirect_without_port("/portal/login")
+        redirect_without_port("/desk")
 
     user = client_user
 
