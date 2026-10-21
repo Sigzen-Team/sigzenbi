@@ -1,0 +1,20 @@
+{
+ "app": "sigzenbi",
+ "bg_color": "gray",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon_type": "App",
+ "idx": 0,
+ "label": "SigzenBI",
+ "link": "/sigzenbi",
+ "link_type": "External",
+ "logo_url": "/assets/sigzenbi/images/sigzenbi.svg",
+ "modified": "2026-10-20 16:30:00.000000",
+ "modified_by": "Administrator",
+ "name": "SigzenBI",
+ "owner": "Administrator",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}
