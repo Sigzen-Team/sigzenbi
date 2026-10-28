@@ -4,95 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Choose a plan &middot; SigzenBI</title>
-<style>
-  :root{
-    --accent:#eb5f27; --accent-deep:#c24a1e; --accent-wash:#fdefe7;
-    --nav:#223552; --nav-ground:#18263f;
-    --ground:#f4f6fa; --surface:#ffffff; --ink:#1b2942; --ink-deep:#0f1b30;
-    --muted:#5b6b83; --line:#e4e9f0; --line-strong:#d3dbe6;
-    --r:16px; --r-sm:10px;
-    --shadow:0 1px 2px rgba(16,31,58,.06),0 8px 24px rgba(16,31,58,.06);
-    --f-ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --accent:#ff7038; --accent-deep:#eb5f27; --accent-wash:#3a2317;
-      --nav:#16233a; --nav-ground:#0f1826;
-      --ground:#0b1220; --surface:#131f33; --ink:#e7edf6; --ink-deep:#f4f8ff;
-      --muted:#93a4bf; --line:#26364f; --line-strong:#334663;
-      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
-    }
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:var(--f-ui);background:var(--ground);color:var(--ink);
-       -webkit-font-smoothing:antialiased;line-height:1.5}
-  header{background:var(--nav);color:#eaf0f8;padding:1rem 1.5rem;display:flex;align-items:center;gap:.6rem}
-  header .logo{font-weight:800;font-size:1.2rem;letter-spacing:-.02em;display:flex;align-items:center;gap:.55rem}
-  header .logo .mark{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;
-       display:grid;place-items:center;font-size:.9rem}
-  header .logo span{color:var(--accent)}
-  main{max-width:1040px;margin:0 auto;padding:3rem 1.5rem 4rem}
-  .hero{text-align:center;max-width:620px;margin:0 auto 2.5rem}
-  .hero .pill{display:inline-block;background:var(--accent-wash);color:var(--accent-deep);
-       font-weight:700;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase;
-       padding:.35rem .8rem;border-radius:999px;margin-bottom:1rem}
-  .hero h1{font-size:clamp(1.7rem,4vw,2.3rem);line-height:1.12;color:var(--ink-deep);margin:0 0 .75rem;letter-spacing:-.02em}
-  .hero p{color:var(--muted);font-size:1.05rem;margin:0}
-  .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem;align-items:stretch}
-  .plan{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-       padding:1.75rem 1.5rem;display:flex;flex-direction:column;box-shadow:var(--shadow);
-       transition:border-color .15s,transform .2s}
-  .plan:hover{border-color:var(--accent);transform:translateY(-3px)}
-  .plan h3{margin:0 0 .5rem;font-size:1.15rem;color:var(--ink-deep)}
-  .plan .price{font-size:2rem;font-weight:700;color:var(--ink-deep);line-height:1;
-       font-variant-numeric:tabular-nums}
-  .plan .price .from{font-size:.85rem;font-weight:600;color:var(--muted);vertical-align:.6em;margin-right:2px}
-  .plan .price .cur{font-size:1.1rem;font-weight:600;vertical-align:.35em;margin-right:1px}
-  .plan .interval{color:var(--muted);font-size:.9rem;margin:.35rem 0 1.5rem}
-  .plan .cta{margin-top:auto;display:inline-flex;align-items:center;justify-content:center;
-       background:var(--accent);color:#fff;text-decoration:none;font-weight:700;font-size:.92rem;
-       padding:.75rem 1rem;border-radius:var(--r-sm);transition:background .15s}
-  .plan .cta:hover{background:var(--accent-deep)}
-  .empty{text-align:center;color:var(--muted);padding:2rem}
-  footer{text-align:center;color:var(--muted);font-size:.85rem;padding:2rem 1.5rem}
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+{%- if central_url %}
+<link rel="stylesheet" href="{{ central_url }}assets/sigzenbi_central/css/app.css">
+{%- endif %}
 </head>
-<body>
-<header>
-  <div class="logo"><span class="mark">S</span>Sigzen<span>BI</span></div>
+<body class="sg-paywall">
+{#- SPEC S11 / Paywall mock. Branches: not-in-plan (AI-only tenant) -> trial ended -> expired; a member
+    sees who can fix it instead of plans. Nothing here invents counts or dates. -#}
+<header class="sg-reg__top">
+  <div class="sg-reg__brand">
+    {%- if central_url %}<img src="{{ central_url }}assets/sigzenbi_central/images/apple-icon.png" width="22" height="22" alt="">{% endif %}
+    SigzenBI
+  </div>
 </header>
-<main>
-  <div class="hero">
-    {%- if was_trial is defined and not was_trial %}
-    <span class="pill">Subscription expired</span>
-    <h1>Your subscription has expired</h1>
-    <p>Your dashboards and data are safely saved and will be restored as soon as your
-       subscription is renewed. Billing and Team stay available so you can complete payment.</p>
+<div class="sg-paywall__backdrop" aria-hidden="true" inert>
+  <div class="sg-paywall__tile"></div><div class="sg-paywall__tile"></div><div class="sg-paywall__tile"></div>
+  <div class="sg-paywall__tile"></div><div class="sg-paywall__tile"></div><div class="sg-paywall__tile"></div>
+</div>
+<main class="sg-paywall__stage">
+  <section class="sg-paywall__card" aria-labelledby="pwTitle" aria-describedby="pwDesc">
+    <div class="sg-paywall__head">
+      {%- if bi_missing %}
+      <span class="sg-paywall__pill">Not in your plan</span>
+      <h1 id="pwTitle">Dashboards are not part of your plan</h1>
+      <p id="pwDesc">Your plan includes Ask AI but not dashboards. Add analyst or viewer seats to open them.</p>
+      {%- elif was_trial %}
+      <span class="sg-paywall__pill">Trial ended</span>
+      <h1 id="pwTitle">Your trial has ended</h1>
+      <p id="pwDesc">Your free trial {% if end_label %}ended on {{ end_label }}{% else %}has ended{% endif %}. Everything is saved and comes back the moment you choose a plan.</p>
+      {%- else %}
+      <span class="sg-paywall__pill">Subscription expired</span>
+      <h1 id="pwTitle">Your subscription has expired</h1>
+      <p id="pwDesc">Your subscription {% if end_label %}ended on {{ end_label }}{% else %}has ended{% endif %}. Everything is saved and comes back as soon as it is renewed. Billing and Team stay available.</p>
+      {%- endif %}
+    </div>
+
+    <div class="sg-paywall__keep">
+      <h2>What you keep</h2>
+      <ul>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#E3F4EA"></circle><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#155E3B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>Your dashboards and saved charts — exactly as you left them</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#E3F4EA"></circle><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#155E3B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>Your Ask AI chats — history and answers kept</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#E3F4EA"></circle><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#155E3B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>Your team — seats and access kept</li>
+      </ul>
+    </div>
+
+    {%- if is_member %}
+    <p class="sg-paywall__note">Only your organisation admin can choose a plan. Your dashboards come back as soon as they do.</p>
+    <div class="sg-paywall__actions"><a class="sg-btn" href="/app">Switch to ERP</a></div>
     {%- else %}
-    <span class="pill">Trial ended</span>
-    <h1>Your free trial has ended</h1>
-    <p>Your dashboards and data are safely saved and will be restored the moment you choose a plan.</p>
+    {%- if plans %}
+    <div class="sg-paywall__plans">
+      {%- for plan in plans %}
+      {#- ponytail: Western grouping equals en-IN below ₹1,00,000; switch to an en-IN filter if a plan crosses it -#}
+      <a class="sg-paywall__plan" href="{% if (plan.cost|float) == 0 %}/client_billing{% else %}/client_billing?plan={{ plan.name | urlencode }}{% endif %}">
+        <span><b style="font-weight:500">{{ plan.name }}</b></span>
+        <span>from ₹{{ "{:,.0f}".format(plan.cost|float) }} per {{ (plan.billing_interval or "month")|lower }}</span>
+      </a>
+      {%- endfor %}
+    </div>
+    {%- else %}
+    <p class="sg-paywall__note">Plans are loading. Please refresh in a moment, or contact support.</p>
     {%- endif %}
-  </div>
-  <div class="plans">
-    {% for plan in plans or [] %}
-      <div class="plan">
-        <h3>{{ plan.name }}</h3>
-        <!-- Whole rupees with thousands separators. {{ plan.cost }} is a Float, so this
-             rendered the price of the product as "1500.0" / "12999.0" (2026-08-07). -->
-        <div class="price"><span class="from">from</span> <span class="cur">&#8377;</span>{{ "{:,.0f}".format(plan.cost|float) }}</div>
-        <div class="interval">per {{ (plan.billing_interval or "month")|lower }} &middot; final price depends on how many people you add</div>
-        {% if (plan.cost|float) == 0 %}
-          <a class="cta" href="/client_billing">Choose {{ plan.name }}</a>
-        {% else %}
-          <a class="cta" href="/client_billing?plan={{ plan.name | urlencode }}">Choose {{ plan.name }}</a>
-        {% endif %}
-      </div>
-    {% else %}
-      <div class="empty">Plans are loading. Please refresh in a moment, or contact support.</div>
-    {% endfor %}
-  </div>
+    <div class="sg-paywall__actions">
+      <a class="sg-btn sg-btn--primary" href="/client_billing">{% if bi_missing %}Add seats{% elif was_trial %}Choose a plan{% else %}Renew plan{% endif %}</a>
+    </div>
+    {%- endif %}
+  </section>
 </main>
-<footer>Questions about a plan? Reach out to your SigzenBI account team.</footer>
 </body>
 </html>

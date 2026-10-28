@@ -4,7 +4,7 @@ What must never regress:
 - a permission-changing save ENQUEUES the bust and NEVER raises, even with the queue down —
   breaking the save that revoked a permission would be worse than a stale minute;
 - the worker posts Central's bust endpoint once per hosted identity, per-tenant secret in the
-  BODY, and skips identities with no secret;
+  X-Sigzen-Gateway-Secret header (never the body), and skips identities with no secret;
 - every network failure is swallowed (the 60 s TTL is the backstop);
 - no Central URL configured -> no calls at all.
 """
@@ -51,13 +51,14 @@ class TestWorkerHalf(unittest.TestCase):
             bust_scope.bust_central_member_scope()
         return calls
 
-    def test_posts_once_per_identity_with_the_secret_in_the_body(self):
+    def test_posts_once_per_identity_with_the_secret_in_the_header(self):
         calls = self._run()
         self.assertEqual(len(calls), 2)
         for url, kw in calls:
             self.assertIn("bust_member_scope", url)
             self.assertIn(kw["json"]["client_name"], ("A", "B"))
-            self.assertIn(kw["json"]["secret"], ("sa", "sb"))
+            self.assertNotIn("secret", kw["json"])
+            self.assertIn(kw["headers"]["X-Sigzen-Gateway-Secret"], ("sa", "sb"))
             self.assertNotIn("sa", url)
             self.assertNotIn("sb", url)
 

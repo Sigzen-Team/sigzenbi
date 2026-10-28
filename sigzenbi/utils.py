@@ -246,6 +246,12 @@ def _central_error_message(response):
     return None
 
 
+def _get_params(payload):
+    """GET query strings land in Central's access log; the api pair already travels in the
+    Authorization header, which Central's _verify_client_credentials falls back to."""
+    return {k: v for k, v in payload.items() if k not in ("api_key", "api_secret")}
+
+
 def call_central_api(endpoint_url, payload=None, method="POST", headers=None, cookies=None, timeout=60, client_name=None):
     """
     Sends request to Central with current credentials and atomically
@@ -294,7 +300,7 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
             if method == "POST":
                 response = requests.post(endpoint_url, json=payload, headers=headers, cookies=cookies, timeout=timeout)
             else:
-                response = requests.get(endpoint_url, params=payload, headers=headers, cookies=cookies, timeout=timeout)
+                response = requests.get(endpoint_url, params=_get_params(payload), headers=headers, cookies=cookies, timeout=timeout)
 
             # If unauthorized, another concurrent call for this same client_name may
             # have just rotated and persisted a fresher pair — re-read and retry with
@@ -341,7 +347,7 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
                     if method == "POST":
                         response = requests.post(endpoint_url, json=payload, headers=headers, cookies=cookies, timeout=timeout)
                     else:
-                        response = requests.get(endpoint_url, params=payload, headers=headers, cookies=cookies, timeout=timeout)
+                        response = requests.get(endpoint_url, params=_get_params(payload), headers=headers, cookies=cookies, timeout=timeout)
 
             response.raise_for_status()
             data = response.json()
@@ -349,7 +355,13 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
             # Surface Central's user-facing throw message instead of a raw traceback.
             _msg = _central_error_message(response)
             if _msg:
-                frappe.throw(_msg)
+                # Central's text only: no chained requests error (Central host, endpoint, client_name,
+                # chat_user) and no traceback in the browser's 417 body (CHAT-E2E-FIXES check-error-body)
+                frappe.local.flags.disable_traceback = True
+                try:
+                    frappe.throw(_msg)
+                except frappe.ValidationError as clean:
+                    raise clean from None
             raise
         except Exception:
             raise
@@ -451,28 +463,94 @@ def resolve_bi_user():
     return central_sid, client_user
 
 
-SUPPORT_HINT = "SigzenBI support (support@sigzen.com)"  # ponytail: static; wire to site_config if the address ever moves
+SUPPORT_EMAIL = "support@sigzen.com"  # ponytail: static; wire to site_config if the address ever moves
+SUPPORT_HINT = f"SigzenBI support ({SUPPORT_EMAIL})"
+
+# The system-page look (P5, mocks ErrorStates/Unavailable/Analytics). Inline and self-contained ON PURPOSE:
+# these pages are shown when Central -- which hosts every stylesheet and font -- is the thing that failed.
+_SYS_CSS = (
+    "*{box-sizing:border-box}"
+    "body{margin:0;background:#FAFAF8;color:#1F2430;"
+    "font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}"
+    ".top{display:flex;align-items:center;gap:8px;padding:18px 24px;font-size:17px;font-weight:700;color:#16213A}"
+    ".sg-sys{max-width:520px;margin:8vh auto;background:#fff;border:1px solid #ECE9E3;border-radius:14px;padding:32px}"
+    ".pill{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500}"
+    ".dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}"
+    ".pill--warn{color:#7A4A12;background:#FBF1E2}.pill--warn .dot{background:#D9A441}"
+    ".pill--neutral{color:#5B6270;background:#F4F3EF}.pill--neutral .dot{background:#8FA9C4}"
+    ".pill--info{color:#1F2430;background:#FFF1E8}.pill--info .dot{background:#E46A2E;animation:sgPulse 1.2s ease-in-out infinite}"
+    ".pill--bad{color:#B42318;background:#FDECEA}.pill--bad .dot{background:#B42318}"
+    "@keyframes sgPulse{0%,100%{opacity:1}50%{opacity:.3}}"
+    "h1{margin:16px 0 8px;font-size:22px;font-weight:600;line-height:1.3}"
+    "p{margin:0;font-size:14px;line-height:1.6;color:#5B6270}"
+    ".acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}"
+    ".acts:empty{display:none}"
+    ".btn{display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:10px;font-size:14px;font-weight:600;"
+    "text-decoration:none;color:#1F2430;background:#fff;border:1px solid #E4E1DA;transition:background-color .15s ease}"
+    ".btn:hover{background:#F4F3EF}"
+    ".btn--pri{background:#B4410F;border-color:#B4410F;color:#fff}.btn--pri:hover{background:#8A300A;border-color:#8A300A}"
+    ".meta{margin-top:20px;font-size:12px;color:#6B7280}.meta a{color:#B4410F}"
+    ":focus-visible{outline:2px solid #B4410F;outline-offset:2px}"
+    "@media (max-width:600px){.sg-sys{margin:24px 16px;padding:24px 16px}}"
+    "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    # P6: OS dark mode with the P0 dark tokens (these pages cannot load app.css).
+    "@media (prefers-color-scheme:dark){"
+    "body{background:#14161B;color:#ECEDEF}.top{color:#ECEDEF}"
+    ".sg-sys{background:#1B1E24;border-color:#2C3038}"
+    ".pill--warn{color:#F2C27A;background:#3A2B12}.pill--neutral{color:#B6BBC4;background:#22262D}"
+    ".pill--info{color:#ECEDEF;background:#3A2418}.pill--bad{color:#F8A39B;background:#421D1A}"
+    "p{color:#B6BBC4}"
+    ".btn{color:#ECEDEF;background:#1B1E24;border-color:#3A3F49}.btn:hover{background:#22262D}"
+    ".btn--pri{background:#B4410F;border-color:#B4410F;color:#fff}.btn--pri:hover{background:#C9531C;border-color:#C9531C}"
+    ".meta{color:#9CA2AD}.meta a{color:#F59B66}"
+    ":focus-visible{outline-color:#F59B66}}"
+    "@media (max-width:767px){.btn{height:44px}}"
+)
+
+def system_page(title, body, pill, tone, actions=(), meta="", go_url=None):
+    """A complete SigzenBI state page that needs nothing from Central (it is shown when Central is the thing that failed).
+    title/body/pill are fixed caller strings, escaped here; actions = ((label, href, primary), ...), escaped here.
+    `meta` is trusted markup (may hold one caller-built link) -- callers escape what they put in it.
+    go_url: the page navigates itself there after one paint (interstitial), with a <noscript> refresh fallback."""
+    import json
+    from html import escape as e
+    acts = "".join(f'<a class="btn{" btn--pri" if pri else ""}" href="{e(href)}">{e(label)}</a>'
+                   for label, href, pri in actions)
+    head = tail = ""
+    if go_url:
+        head = f'<noscript><meta http-equiv="refresh" content="0;url={e(go_url)}"></noscript>'
+        # json.dumps does not escape "</" -- the go-URL is our own path + urlencoded query, so it cannot hold one.
+        tail = ("<script>requestAnimationFrame(function(){requestAnimationFrame(function(){location.replace("
+                + json.dumps(go_url) + ")})})</script>")
+    return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1"><title>SigzenBI</title>'
+            f"<style>{_SYS_CSS}</style>{head}</head><body>"
+            f'<div class="top"><span>SigzenBI</span></div>'
+            f'<main class="sg-sys" aria-labelledby="sgSysT"><span class="pill pill--{e(tone)}">'
+            f'<span class="dot" aria-hidden="true"></span>{e(pill)}</span>'
+            f'<h1 id="sgSysT">{e(title)}</h1><p>{e(body)}</p><div class="acts">{acts}</div>'
+            f'<p class="meta" role="status">{meta}</p></main>{tail}</body></html>')
 
 
 def guided_fallback(page_label, configured):
-    """Friendly, fully-static guided message for a mirrored page that could not render.
-    `page_label` is a fixed caller-supplied string; `configured` = bool(base_url).
+    """Friendly, fully-static guided page for a mirrored page that could not render.
+    `page_label` is a fixed caller-supplied string (escaped anyway); `configured` = bool(base_url).
     NEVER interpolate request input, base_url, or exception text here -- output is rendered `| safe`."""
+    mail = f'<a href="mailto:{SUPPORT_EMAIL}">{SUPPORT_HINT}</a>'
     if not configured:
-        return (
-            f"<div style='max-width:640px;margin:80px auto;font-family:system-ui,sans-serif;text-align:center'>"
-            f"<h1 style='font-size:1.4rem'>{page_label} is not available yet</h1>"
-            f"<p>This SigzenBI workspace has not finished setup &mdash; its connection to the SigzenBI service "
-            f"is not configured. No data is missing; the workspace just isn't linked yet.</p>"
-            f"<p>Please contact your administrator or {SUPPORT_HINT} to complete setup.</p></div>"
-        )
-    return (
-        f"<div style='max-width:640px;margin:80px auto;font-family:system-ui,sans-serif;text-align:center'>"
-        f"<h1 style='font-size:1.4rem'>{page_label} is temporarily unavailable</h1>"
-        f"<p>We couldn't reach the SigzenBI service just now. This is usually temporary &mdash; "
-        f"please refresh in a moment.</p>"
-        f"<p>If it keeps happening, contact {SUPPORT_HINT}.</p></div>"
-    )
+        return system_page(
+            f"{page_label} is not available yet",
+            "This SigzenBI workspace hasn't finished setup \u2014 its connection to the SigzenBI service isn't "
+            "configured yet. No data is missing; the workspace just isn't linked.",
+            "Not available yet", "neutral", actions=(("Back to ERPNext", "/app", True),),
+            meta=f"Ask your administrator to finish setup, or contact {mail}.")
+    return system_page(
+        f"{page_label} is temporarily unavailable",
+        "We couldn't reach the SigzenBI service just now. This is on our side, not your ERPNext, "
+        "and nothing you have built is lost.",
+        "Temporarily unavailable", "warn",
+        actions=(("Try again", "", True), ("Back to ERPNext", "/app", False)),
+        meta=f"If it keeps happening, contact {mail}.")
 
 
 def fetch_active_plans(central_url):

@@ -114,18 +114,19 @@ class TestRenderSignup(unittest.TestCase):
     def tearDown(self):
         frappe.local.flags.redirect_location = self._loc
 
-    def test_registered_site_redirects_before_http(self):
+    def test_registered_site_shows_card_before_http(self):
+        """UI revamp 2026-10-27 (mock AuthSignup2): a registered site renders the
+        "already registered" card instead of redirecting -- still before any HTTP call."""
         from sigzenbi.www.register import register
         def _gsv(doctype, field):
             return "AcmeCo" if field == "client_name" else ""
         with patch("sigzenbi.www.register.register.requests") as mreq, \
              patch("frappe.get_installed_apps", return_value=["sigzenbi"]), \
              patch("frappe.db.get_single_value", side_effect=_gsv):
-            with self.assertRaises(frappe.Redirect):
-                register.render_signup(frappe._dict())
+            ctx = register.render_signup(frappe._dict())  # must NOT raise frappe.Redirect
             mreq.get.assert_not_called()
             mreq.post.assert_not_called()
-        self.assertEqual(frappe.local.flags.redirect_location, "/portal/login")
+        self.assertIn("This site is already registered", ctx.central_html)
 
     def test_unregistered_site_no_redirect(self):
         from sigzenbi.www.register import register

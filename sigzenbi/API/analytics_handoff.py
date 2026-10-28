@@ -92,18 +92,53 @@ def _mint_with_sid(central_sid, next=None):
         return None
 
 
+HANDOFF_PATH = "/api/method/sigzenbi.API.analytics_handoff.open_analytics"
+
+
+def _go_url(next=None):
+    from urllib.parse import urlencode
+    return HANDOFF_PATH + "?" + urlencode({"go": 1, **({"next": next} if next else {})})
+
+
+def _html(body):
+    from werkzeug.wrappers import Response
+    return Response(body, status=200, content_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+
+def _opening_html(next=None):
+    from html import escape
+    from sigzenbi.utils import system_page
+    go = _go_url(next)
+    return system_page("Opening Analytics\u2026", "Signing you in to your Analytics workspace. This takes a few seconds.",
+                       "Opening", "info", meta=f'Not moving? <a href="{escape(go)}">Open Analytics</a>', go_url=go)
+
+
+def _failure_html(next=None):
+    from sigzenbi.utils import SUPPORT_EMAIL, system_page
+    return system_page("We couldn't open Analytics",
+                       "Analytics didn't accept the sign-in just now. Your dashboards and chats are not affected. "
+                       "Trying again starts a fresh one-time sign-in.", "Couldn't open", "bad",
+                       actions=(("Try again", _go_url(next), True), ("Back to dashboards", "/client_dashboard", False)),
+                       meta=f'Still stuck? Email <a href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a>')
+
+
 @frappe.whitelist(allow_guest=True)
-def open_analytics(next=None):
+def open_analytics(next=None, go=None):
     """Mint a hand-off token at Central and send the browser straight to the analytics domain.
 
     The token is in the URL for exactly one hop and is consumed server-side on arrival (~60 s TTL,
     single use). Nothing here logs it, and it is never written to this box's storage.
 
-    Any failure — viewer seat, Central unreachable, a session that cannot be re-established — lands
-    the person back in the portal rather than on a Frappe traceback page. The reason is
+    The FIRST hit (no `go`) is an interstitial page that paints "Opening Analytics…" and then navigates to
+    `?go=1`, so the new tab is never blank while the mint runs; it does no identity work, so it leaks nothing.
+
+    Any failure — viewer seat, Central unreachable, a session that cannot be re-established — gets one
+    explained page with Try again / Back to dashboards rather than a Frappe traceback page. The reason is
     deliberately not echoed into the URL: "you are not an analyst" and "your session expired" are
     the same non-answer to anyone probing this endpoint.
     """
+    if not go:
+        return _html(_opening_html(next))
     url = None
     try:
         # THE ONE IDENTITY RESOLVER, not the cookie. A live ERP session outranks the BI cookie and
@@ -131,5 +166,9 @@ def open_analytics(next=None):
         frappe.log_error(title="analytics handoff",
                          message="open_analytics failed\n\n" + frappe.get_traceback())
 
-    frappe.local.response["type"] = "redirect"
-    frappe.local.response["location"] = url or "/client_dashboard"
+    if url:
+        frappe.local.response["type"] = "redirect"
+        frappe.local.response["location"] = url
+        return None
+    # One page for every reason — never "not an analyst" vs "session expired" (see docstring).
+    return _html(_failure_html(next))
