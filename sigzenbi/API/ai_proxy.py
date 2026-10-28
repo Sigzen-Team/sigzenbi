@@ -136,6 +136,10 @@ def _call_central_ai(*args, **kwargs):
 	except requests.exceptions.Timeout:
 		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
 		frappe.throw(_("The AI assistant took too long to respond. Please try again."))
+	except frappe.ValidationError:
+		# call_central_api already threw Central's own message (a refusal such as "That
+		# question can't be retried."); throwing the generic line too would append it.
+		raise
 	except Exception as e:
 		frappe.log_error(title="AI Proxy Error", message=frappe.get_traceback())
 		frappe.throw(
@@ -566,6 +570,54 @@ def send_build_message(message=None, chat_id=None, client_name=None, **kwargs):
 def send_interactive_message(message=None, chat_id=None, client_name=None, **kwargs):
 	"""ASK AI -- conversational analysis. Requires a SigzenAI licence (asserted on Central)."""
 	return _send_chat("send_interactive_message", message, chat_id, kwargs.get("edit"), kwargs.get("turn_key"))
+
+
+# --- Background turns (Central Phase 1 SPEC §6): submit returns at once, the page polls. ---
+def _submit_turn(method, message, chat_id, edit, turn_id, retry_of=None):
+	"""Like _send_chat, but Central only queues the turn, so a short timeout."""
+	chat_user = _proxy_auth()
+	if not message or not str(message).strip():
+		frappe.throw(_("Message cannot be empty."))
+	payload = {"client_name": _get_client_name(), "chat_user": chat_user,
+			"message": str(message).strip()}
+	if chat_id:
+		payload["chat_id"] = chat_id
+	if edit:
+		payload["edit"] = edit if isinstance(edit, str) else frappe.as_json(edit)
+	if turn_id:
+		payload["turn_id"] = str(turn_id)[:64]
+	if retry_of:  # Retry button: Central validates format + ownership
+		payload["retry_of"] = str(retry_of)[:64]
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.{method}",
+		payload=payload, method="POST", timeout=15,
+	)
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def submit_build_turn(message=None, chat_id=None, client_name=None, edit=None, turn_id=None, retry_of=None, **kwargs):
+	"""Background twin of send_build_message."""
+	return _submit_turn("submit_build_turn", message, chat_id, edit, turn_id, retry_of)
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def submit_interactive_turn(message=None, chat_id=None, client_name=None, edit=None, turn_id=None, retry_of=None, **kwargs):
+	"""Background twin of send_interactive_message (licence asserted on Central)."""
+	return _submit_turn("submit_interactive_turn", message, chat_id, edit, turn_id, retry_of)
+
+
+@frappe.whitelist(allow_guest=True)
+def poll_turn(turn_id=None, after=0, client_name=None, **kwargs):
+	"""Status + events after `after` of the caller's own turn; Central checks ownership."""
+	from frappe.utils import cint
+
+	chat_user = _proxy_auth()
+	return _call_central_ai(
+		f"{_get_central_base()}api/method/sigzenbi_central.API.ai_chat.chat_api.poll_turn",
+		payload={"client_name": _get_client_name(), "chat_user": chat_user,
+		         "turn_id": turn_id or "", "after": cint(after)},
+		method="GET", timeout=10,
+	)
 
 
 @frappe.whitelist(allow_guest=True)

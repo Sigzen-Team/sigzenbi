@@ -35,7 +35,7 @@ def render_chat(context, kind):
 	# Identity: a live ERP session wins over a stale client_session_user cookie
 	# (re-vouches on account switch, fails closed) — same resolver as the dashboard.
 	from sigzenbi.utils import resolve_bi_user
-	_, client_user = resolve_bi_user()
+	central_sid, client_user = resolve_bi_user()
 
 	if not client_user:
 		from sigzenbi.utils import redirect_without_port
@@ -50,7 +50,7 @@ def render_chat(context, kind):
 	# FAIL OPEN on an unreachable Central -- never show a paying customer a paywall because a
 	# health check timed out. This is UX; Central enforces regardless of what renders.
 	try:
-		from sigzenbi.www.client_dashboard import _fetch_subscription_state
+		from sigzenbi.www.client_dashboard import _fetch_subscription_state, _is_member, paywall_context
 
 		_state = _fetch_subscription_state(client_user)
 		if _state is not None and _state.get("status") == "Expired":
@@ -58,12 +58,14 @@ def render_chat(context, kind):
 
 			_base = frappe.db.get_single_value(
 				"SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
+			if _base and not _base.endswith("/"):
+				_base += "/"
 			context.plans = fetch_active_plans(_base)
 			with open(frappe.get_app_path("sigzenbi", "www", "paywall.html"),
 			          encoding="utf-8") as _pf:
-				context.html_content = frappe.render_template(_pf.read(),
-				                                              {"plans": context.plans,
-				 "was_trial": bool(_state.get("is_trial", True))})
+				context.html_content = frappe.render_template(_pf.read(), paywall_context(
+					_state, context.plans, _is_member(_base, central_sid), bi_missing=False,
+					central_url=_base))
 			return context
 	except Exception:
 		frappe.log_error(title="chat paywall check failed", message=frappe.get_traceback())

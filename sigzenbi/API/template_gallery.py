@@ -41,13 +41,13 @@ def get_templates():
     client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
     # Per-tenant gateway_secret, NOT the global shared secret — Central's get_templates
     # secret path now verifies the secret belongs to this client_name.
-    from sigzenbi.API.gateway.poll_jobs import _secret
+    from sigzenbi.API.gateway.poll_jobs import GATEWAY_SECRET_HEADER, _secret
     secret = _secret(client_name)
 
     try:
         from sigzenbi.utils import call_central_api
         url = f"{base_url}api/method/sigzenbi_central.API.template_gallery.get_templates"
-        res = call_central_api(url, payload={"client_name": client_name, "secret": secret}, method="GET", timeout=10)
+        res = call_central_api(url, payload={"client_name": client_name}, headers={GATEWAY_SECRET_HEADER: secret}, method="GET", timeout=10)
         return res
     except Exception as e:
         frappe.log_error(title="get_templates proxy failed", message=str(e))
@@ -65,13 +65,13 @@ def install_template(template_name=None):
     client_name = frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name") or frappe.conf.get("client_name") or frappe.local.site
     # Per-tenant gateway_secret, NOT the global shared secret — Central's install_template
     # now verifies the secret belongs to this specific client_name.
-    from sigzenbi.API.gateway.poll_jobs import _secret
+    from sigzenbi.API.gateway.poll_jobs import GATEWAY_SECRET_HEADER, _secret
     secret = _secret(client_name)
 
     try:
         from sigzenbi.utils import call_central_api
         url = f"{base_url}api/method/sigzenbi_central.API.template_gallery.install_template"
-        res = call_central_api(url, payload={"template_name": template_name, "client_name": client_name, "secret": secret}, method="GET", timeout=30)
+        res = call_central_api(url, payload={"template_name": template_name, "client_name": client_name}, headers={GATEWAY_SECRET_HEADER: secret}, method="GET", timeout=30)
         return res
     except Exception as e:
         frappe.log_error(title="install_template proxy failed", message=str(e))
