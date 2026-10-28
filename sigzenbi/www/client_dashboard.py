@@ -40,10 +40,13 @@ def _vouch_for_logged_in_user(visitor):
     if not secret:
         return None, None
 
+    from sigzenbi.API.gateway.poll_jobs import GATEWAY_SECRET_HEADER
+
     try:
         response = requests.post(
             f"{base_url}api/method/sigzenbi_central.www.client_login.vouch_login",
-            json={"client_name": client_name, "user": visitor, "secret": secret},
+            json={"client_name": client_name, "user": visitor},
+            headers={GATEWAY_SECRET_HEADER: secret},
             timeout=10,
         )
         if not response.ok:
@@ -177,6 +180,30 @@ def _fetch_subscription_state(client_user):
         return None
 
 
+def paywall_context(state, plans, is_member=False, bi_missing=False, central_url=""):
+    """Render context for www/paywall.html (SPEC S11). Pure -- no I/O."""
+    from datetime import datetime
+    end = state.get("end_date")
+    try:
+        end_label = datetime.strptime(end[:10], "%Y-%m-%d").strftime("%-d %b %Y") if end else ""
+    except ValueError:
+        end_label = ""
+    return {"plans": plans, "was_trial": bool(state.get("is_trial", True)), "end_label": end_label,
+            "is_member": bool(is_member), "bi_missing": bool(bi_missing), "central_url": central_url}
+
+
+def _is_member(base_url, central_sid):
+    """Member (not admin) per Central's can_manage flag. Unknown -> False: the owner view is today's behaviour."""
+    if not (base_url and central_sid):
+        return False
+    r = central_get_with_sid(
+        f"{base_url}api/method/sigzenbi_central.API.team.superset_credentials.can_manage_superset_login", central_sid)
+    try:
+        return r is not None and r.ok and (r.json().get("message") or {}).get("can_manage") == 0
+    except Exception:
+        return False
+
+
 def get_context(context):
     context.no_cache = 1
 
@@ -243,8 +270,9 @@ def get_context(context):
         context.plans = fetch_active_plans(base_url)
         with open(frappe.get_app_path("sigzenbi", "www", "paywall.html"), encoding="utf-8") as _pf:
             _paywall_src = _pf.read()
-        context.central_html = frappe.render_template(_paywall_src, {"plans": context.plans,
-				 "was_trial": bool(state.get("is_trial", True))})
+        context.central_html = frappe.render_template(_paywall_src, paywall_context(
+            state, context.plans, _is_member(base_url, central_sid),
+            bi_missing=state.get("status") != "Expired", central_url=base_url))
         return context
 
     # The client site has no Client User doctype, so the "Analytics login" card gate is
@@ -385,6 +413,7 @@ def get_context(context):
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="client_dashboard", message=f"Error rendering central client_dashboard template: {e}")
-            context.central_html = central_html  # fallback to raw if template rendering fails
+            from sigzenbi.utils import guided_fallback
+            context.central_html = guided_fallback("Your dashboard", True)  # never serve the raw template (P5)
             
     return context

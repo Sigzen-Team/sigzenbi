@@ -42,6 +42,7 @@ def bust_central_member_scope():
 
     from sigzenbi.API.gateway.poll_jobs import (
         _candidate_client_names,
+        GATEWAY_SECRET_HEADER,
         _central_url,
         _secret,
     )
@@ -57,7 +58,8 @@ def bust_central_member_scope():
             requests.post(
                 f"{base}/api/method/"
                 "sigzenbi_central.API.team.member_scope_cache.bust_member_scope",
-                json={"client_name": name, "secret": secret},
+                json={"client_name": name},
+                headers={GATEWAY_SECRET_HEADER: secret},
                 timeout=10,
             )
         except Exception:

@@ -54,6 +54,8 @@ def get_context(context):
     try:
         context.central_html = frappe.render_template(central_html, context)
     except Exception:
-        context.central_html = central_html
+        frappe.log_error(title="template_gallery", message="Error rendering central template_gallery template\n\n" + frappe.get_traceback())
+        from sigzenbi.utils import guided_fallback
+        context.central_html = guided_fallback("The Template Gallery", True)  # never serve the raw template (P5)
 
     return context

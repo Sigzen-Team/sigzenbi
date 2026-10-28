@@ -85,7 +85,7 @@ class TestHandoffRecoversAStaleSession(FrappeTestCase):
         self.assertIn("client_user", code[:mint_at],
                       "the mint runs before the resolver's answer is checked")
 
-    def test_a_failure_still_lands_the_customer_in_the_portal(self):
-        code = _code()
-        self.assertIn("/client_dashboard", code)
-        self.assertIn("redirect", code)
+    def test_a_failure_explains_itself_and_links_back_to_the_portal(self):
+        # P5 (2026-10-27): a failure is one explained page (Try again / Back to dashboards), not a silent bounce.
+        self.assertIn("_failure_html", _code())
+        self.assertIn("/client_dashboard", _strip(inspect.getsource(AH)))

@@ -3,6 +3,7 @@ import frappe
 import frappe.sessions
 import requests
 import json
+from frappe.utils import escape_html
 
 # NEVER CACHE THIS PAGE. Frappe caches rendered www pages on path+language only --
 # no user -- so a cached copy is served to EVERYONE. This page renders a per-session csrf_token into the signup form.
@@ -21,6 +22,50 @@ def get_context(context):
     redirect_without_port("/portal/signup" + (("?" + qs) if qs else ""))
 
 
+_STATE_ICONS = {
+    "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+    "warn": '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>',
+}
+
+
+def _host():
+    try:
+        return frappe.request.host if getattr(frappe.local, "request", None) else ""
+    except Exception:
+        return ""
+
+
+def _state_page(tone, title, body_html, actions):
+    """One registration state card (SPEC S8, mock AuthSignup2) as a complete small page.
+    `body_html` must already be escaped by the caller; titles and hrefs are static literals
+    from this module. Styles come from Central's app.css (.sg-reg / .sg-state)."""
+    base_url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
+    if base_url and not base_url.endswith("/"):
+        base_url += "/"
+    css = (f'<link rel="stylesheet" href="{escape_html(base_url)}assets/sigzenbi_central/css/app.css">'
+           if base_url else "")
+    buttons = "".join(
+        f'<a class="{"sg-btn sg-btn--primary" if primary else "sg-state__alt"}" href="{href}">{label}</a>'
+        for label, href, primary in actions)
+    return (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        f"<title>{title} · SigzenBI</title>"
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">'
+        f"{css}</head><body class=\"sg-reg\">"
+        '<header class="sg-reg__top"><div class="sg-reg__brand">'
+        + (f'<img src="{escape_html(base_url)}assets/sigzenbi_central/images/apple-icon.png" width="22" height="22" alt="">' if base_url else "")
+        + 'SigzenBI</div></header>'
+        '<main class="sg-reg__main"><section class="sg-reg__col">'
+        f'<section class="sg-state sg-state--{tone}" role="{"status" if tone == "info" else "alert"}">'
+        '<span class="sg-state__icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        f'stroke="currentColor" stroke-width="2" aria-hidden="true">{_STATE_ICONS[tone]}</svg></span>'
+        f"<h1 style=\"font-size:18px\">{title}</h1><p>{body_html}</p>"
+        f'<div class="sg-state__actions">{buttons}</div></section>'
+        "</section></main></body></html>"
+    )
+
+
 def render_signup(context):
     if "sigzenbi" not in frappe.get_installed_apps():
         try:
@@ -34,10 +79,14 @@ def render_signup(context):
 
     # Already-registered guard: once this site has a primary client_name, signup is done.
     # Re-showing the self-serve form is confusing and a re-submit re-provisions/overwrites,
-    # so send an already-registered visitor straight to the login instead of the form.
+    # so an already-registered visitor gets one calm card (UI revamp 2026-10-27, mock
+    # AuthSignup2; it used to 301 to /desk) -- still BEFORE any Central HTTP call.
     if frappe.db.get_single_value('SigzenBI Subscription Settings', 'client_name'):
-        frappe.local.flags.redirect_location = "/desk"
-        raise frappe.Redirect
+        context.central_html = _state_page(
+            "info", "This site is already registered",
+            f"{escape_html(_host())} is already connected to SigzenBI. There is nothing more to set up.",
+            [("Open SigzenBI", "/client_dashboard", True)])
+        return context
 
     # Signup is OPERATOR-ONLY (founder decision 2026-09-02): registration binds this whole
     # site's identity, and the very next setup step (databasereg) already demands a System
@@ -47,12 +96,20 @@ def render_signup(context):
     try:
         require_site_operator()
     except frappe.PermissionError:
-        context.central_html = (
-            "<div style='max-width:640px;margin:80px auto;font-family:system-ui,sans-serif;text-align:center'>"
-            "<h1 style='font-size:1.4rem'>Administrator login required</h1>"
-            "<p>SigzenBI signup can only be completed by a <b>System Manager</b> of this ERPNext site.</p>"
-            "<p><a href='/login?redirect-to=/portal/signup'>Log in</a> and try again.</p></div>"
-        )
+        title = "Only an ERPNext System Manager can register this company"
+        visitor = frappe.session.user
+        if not visitor or visitor == "Guest":
+            context.central_html = _state_page(
+                "warn", title, "Sign in to ERPNext with a System Manager account to continue.",
+                [("Sign in to ERPNext", "/login?redirect-to=/portal/signup", True)])
+        else:
+            from frappe.utils import get_fullname
+            context.central_html = _state_page(
+                "warn", title,
+                f"You are signed in as {escape_html(get_fullname(visitor))}, who is not a System Manager on "
+                "this ERPNext site. Ask your admin to register — they can then add you from Team.",
+                [("Ask your admin", "mailto:?subject=Please%20register%20our%20company%20with%20SigzenBI", True),
+                 ("Back to ERPNext", "/app", False)])
         return context
 
     base_url = frappe.db.get_single_value('SigzenBI Subscription Settings', 'sigzenbi_erp_link') or ''
@@ -139,7 +196,8 @@ def render_signup(context):
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="register", message=f"Error rendering central register template: {e}")
-            context.central_html = central_html  # fallback to raw if template rendering fails
+            from sigzenbi.utils import guided_fallback
+            context.central_html = guided_fallback("The registration form", True)  # never serve the raw template (P5)
             
     return context
 
@@ -342,6 +400,9 @@ def get_client_credentials(**kwargs):
                 )
                 return {
                     "status": "error",
+                    # Additive key (UI revamp 2026-10-27): the signup page shows a card per code.
+                    "code": ("already_registered" if isinstance(local_err, _RegistrationRejected)
+                             else "setup_failed"),
                     "message": (str(local_err) if isinstance(local_err, _RegistrationRejected)
                                 else "We couldn't finish setting up this site. Nothing was "
                                      "saved — please try again."),
