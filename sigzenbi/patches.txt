@@ -5,3 +5,4 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 sigzenbi.patches.v1_0.seed_sigzenbi_client_credentials
+sigzenbi.patches.v1_0.remove_v15_desktop_icons

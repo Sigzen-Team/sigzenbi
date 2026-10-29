@@ -39,9 +39,9 @@ Then open **`https://your-site.com/portal/signup`** in a browser and follow the 
 create your account, then register your database. That is the whole setup.
 
 Installing the app already points it at the SigzenBI hub and provisions a `SELECT`-only
-database user (`sigzen_ro`) for the query gateway to run as. If your bench does not permit
+database user (`sigzen_ro_<db_name>`, one per site) for the query gateway to run as. If your bench does not permit
 that grant, installation still succeeds and the gateway falls back to the site's own
-database user — provision `sigzen_ro` manually to keep that layer of defence:
+database user — provision it manually to keep that layer of defence:
 
 ```bash
 bench --site your-site.com execute sigzenbi.install.setup_readonly_db.run
