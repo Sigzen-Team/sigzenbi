@@ -181,3 +181,57 @@ class TestAIProxyBilling(FrappeTestCase):
         ):
             with self.assertRaises(frappe.PermissionError, msg=f"{fn.__name__} did not fail closed"):
                 fn(*args)
+
+
+class TestSubmitTurnForwardsRetryOf(FrappeTestCase):
+    """Phase 2 Task 12: the Retry button posts retry_of; the proxy must forward it."""
+
+    def setUp(self):
+        patcher = patch(AUTH, return_value="owner@acme.com")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _payload(self, fn, **kw):
+        with patch("sigzenbi.API.ai_proxy._call_central_ai", return_value={"ok": 1}) as m:
+            fn(message="hi", chat_id="c1", turn_id="t-new", **kw)
+        return m.call_args.kwargs["payload"]
+
+    def test_both_submit_proxies_forward_retry_of(self):
+        for fn in (ai_proxy.submit_build_turn, ai_proxy.submit_interactive_turn):
+            with self.subTest(fn=fn.__name__):
+                p = self._payload(fn, retry_of="t-old")
+                self.assertEqual(p["retry_of"], "t-old")
+                self.assertEqual(p["turn_id"], "t-new")
+
+    def test_retry_of_absent_when_not_passed_and_capped(self):
+        self.assertNotIn("retry_of", self._payload(ai_proxy.submit_build_turn))
+        p = self._payload(ai_proxy.submit_build_turn, retry_of="x" * 100)
+        self.assertEqual(len(p["retry_of"]), 64)
+
+
+GENERIC = "temporarily unavailable"
+
+
+class TestCentralMessageShownAlone(FrappeTestCase):
+    """2026-10-27 founder decision: a Central refusal shows ONLY Central's message; the generic
+    "temporarily unavailable" line is for when Central gave us nothing to show."""
+
+    def _messages(self, side_effect):
+        frappe.local.message_log = []
+        with patch(CALL, side_effect=side_effect), self.assertRaises(Exception):
+            ai_proxy._call_central_ai("https://central/api/method/x", payload={})
+        return " | ".join(str(m.get("message") if isinstance(m, dict) else m) for m in frappe.local.message_log)
+
+    def test_central_refusal_is_the_only_message(self):
+        for refusal in ("That question can't be retried.", "You're sending messages too quickly."):
+            with self.subTest(refusal=refusal):
+                # call_central_api turns Central's 4xx _server_messages into frappe.throw(msg)
+                shown = self._messages(lambda *a, **k: frappe.throw(refusal))
+                self.assertIn(refusal, shown)
+                self.assertNotIn(GENERIC, shown)
+
+    def test_no_central_message_falls_back_to_generic(self):
+        import requests
+        for exc in (requests.exceptions.ConnectionError("down"), ValueError("unparseable")):
+            with self.subTest(exc=type(exc).__name__):
+                self.assertIn(GENERIC, self._messages(exc))

@@ -61,6 +61,7 @@ def get_context(context):
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="db_permission", message=f"Error rendering central db_permission template: {e}")
-            context.central_html = central_html  # fallback to raw if template rendering fails
+            from sigzenbi.utils import guided_fallback
+            context.central_html = guided_fallback("The database permission page", True)  # never serve the raw template (P5)
 
     return context

@@ -229,7 +229,8 @@ def get_context(context):
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="databasereg", message=f"Error rendering central databasereg template: {e}")
-            context.central_html = central_html  # fallback to raw if template rendering fails
+            from sigzenbi.utils import guided_fallback
+            context.central_html = guided_fallback("The database connectivity form", True)  # never serve the raw template (P5)
 
     # CSRF: the client fetches Central's ALREADY-RENDERED databasereg page, so {{ csrf_token }}
     # was baked with CENTRAL's session token -- invalid for the credentialed get_database_credentials

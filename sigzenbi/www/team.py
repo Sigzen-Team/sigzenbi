@@ -112,6 +112,7 @@ def get_context(context):
         context.html_content = frappe.render_template(central_html, context)
     except Exception as e:
         frappe.log_error(title="team", message=f"Error rendering central team template: {e}")
-        context.html_content = central_html
+        from sigzenbi.utils import guided_fallback
+        context.html_content = guided_fallback("The Team page", True)  # never serve the raw template (P5)
 
     return context

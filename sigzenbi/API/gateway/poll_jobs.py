@@ -13,6 +13,10 @@ ACTIVE_NAMES_CACHE_KEY = "sigzen:client:central_active_names"
 ACTIVE_NAMES_STALE_KEY = "sigzen:client:central_active_names:stale"
 ACTIVE_NAMES_CACHE_TTL = 120
 
+# Release the Central web worker between idle long-polls — CLAUDE.md gateway. Slept only after an
+# idle cycle, never after a job (founder decision §19, 2026-10-27).
+IDLE_SLEEP_S = 2
+
 
 def _central_url():
     url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
@@ -24,6 +28,10 @@ def _client_name():
         frappe.conf.get("sigzen_client_name")
         or frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name")
     )
+
+
+# Sent as a header, never in params/body: a GET query string lands in Central's access log.
+GATEWAY_SECRET_HEADER = "X-Sigzen-Gateway-Secret"
 
 
 def _secret(client_name=None):
@@ -67,10 +75,10 @@ def _fetch_active_client_names():
         resp = requests.get(
             f"{_central_url()}/api/method/sigzenbi_central.API.gateway.active_clients.get_active_client_names",
             params={
-                "secret": _secret(_primary),
                 "client_name": _primary,
                 "client_names": _json.dumps(_candidates),
             },
+            headers={GATEWAY_SECRET_HEADER: _secret(_primary)},
             timeout=10,
         )
         resp.raise_for_status()
@@ -204,12 +212,12 @@ def poll_and_execute_jobs(client_name=None):
         try:
             payload = {
                 "client_name": client_name,
-                "secret": secret,
             }
 
             resp = requests.get(
                 f"{central_url}/api/method/sigzenbi_central.API.gateway.pending_query.pending_query",
                 params=payload,
+                headers={GATEWAY_SECRET_HEADER: secret},
                 timeout=35,  # 25s server BLPOP + 10s network buffer
             )
             resp.raise_for_status()
@@ -246,7 +254,7 @@ def poll_and_execute_jobs(client_name=None):
                 # (measured 2026-10-12: 2.1s per query whatever the SQL, the 8th of 8 queued
                 # queries answered after 17s). Fall through to the connection refresh below
                 # and ask for the next one straight away.
-                time.sleep(2)
+                time.sleep(IDLE_SLEEP_S)
 
         except requests.exceptions.RequestException:
             # Expected timeout or network jitter
@@ -275,7 +283,6 @@ def _execute_and_submit(central_url, client_name, secret, job):
         payload = {
             "job_id": job_id,
             "client_name": client_name,
-            "secret": secret,
             "success": success,
             "columns": columns,
             "columns_typed": columns_typed,
@@ -286,6 +293,7 @@ def _execute_and_submit(central_url, client_name, secret, job):
         resp = requests.post(
             f"{central_url}/api/method/sigzenbi_central.API.gateway.submit_query_result.submit_query_result",
             json=payload,
+            headers={GATEWAY_SECRET_HEADER: secret},
             timeout=15,
         )
         resp.raise_for_status()
@@ -315,7 +323,8 @@ def run_materialize(client_name):
 
     resp = requests.get(
         f"{central_url}/api/method/sigzenbi_central.API.gateway.materialize_plan.get_materialize_sql_list",
-        params={"client_name": client_name, "secret": secret},
+        params={"client_name": client_name},
+        headers={GATEWAY_SECRET_HEADER: secret},
         timeout=35,
     )
     if resp.status_code != 200:
@@ -344,12 +353,12 @@ def run_materialize(client_name):
                 f"{central_url}/api/method/sigzenbi_central.API.gateway.submit_materialized_result.submit_materialized_result",
                 json={
                     "client_name": client_name,
-                    "secret": secret,
                     "sql": sql,
                     "columns": columns,
                     "columns_typed": columns_typed,
                     "rows": rows,
                 },
+                headers={GATEWAY_SECRET_HEADER: secret},
                 timeout=30,
             )
         except requests.exceptions.RequestException:

@@ -36,6 +36,12 @@ def get_context(context):
 
 
 
+    # The setup page polls the client's OWN token proxy for provisioning progress (same one
+    # client_dashboard uses); org_name fills its top bar. Both are raw-guarded in Central's
+    # thanks.html so they survive Central's first render (UI revamp 2026-10-27).
+    context.api_setup_status_url = "/api/method/sigzenbi.API.dashboard_api.get_analytics_token"
+    context.org_name = client_name or ""
+
     central_html = ""
     # Fetch from HTTP
     if base_url:
@@ -69,7 +75,14 @@ def get_context(context):
             frappe.log_error(title="thankyou", message=f"Error fetching central thanks.html: {e}")
                 
     if not central_html:
-        context.central_html = "<h1>Registration Successful! Thank you.</h1>"
+        context.central_html = (
+            '<div style="max-width:520px;margin:96px auto;padding:28px;border:1px solid #ECE9E3;'
+            'border-radius:14px;background:#fff;font-family:Inter,system-ui,sans-serif;color:#1F2430">'
+            '<h1 style="margin:0 0 8px;font-size:22px;font-weight:600">Registration complete</h1>'
+            '<p style="margin:0 0 20px;font-size:14px;color:#5B6270">Your workspace is being set up.</p>'
+            '<a href="/client_dashboard" style="display:inline-block;padding:10px 18px;border-radius:10px;'
+            'background:#B4410F;color:#fff;font-weight:600;text-decoration:none">Open your workspace</a></div>'
+        )
     else:
         # Rewrite asset URLs to point to central server
         if base_url:
@@ -89,6 +102,7 @@ def get_context(context):
             context.central_html = frappe.render_template(central_html, context)
         except Exception as e:
             frappe.log_error(title="thankyou", message=f"Error rendering central thankyou template: {e}")
-            context.central_html = central_html  # fallback to raw if template rendering fails
+            from sigzenbi.utils import guided_fallback
+            context.central_html = guided_fallback("The setup status page", True)  # never serve the raw template (P5)
             
     return context
