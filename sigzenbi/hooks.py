@@ -1,3 +1,5 @@
+from frappe import __version__ as _frappe_version
+
 app_name = "sigzenbi"
 app_title = "SigzenBI"
 app_publisher = "SigzenBI"
@@ -255,4 +257,7 @@ scheduler_events = {
 
 
 # --- SigzenBI app card on the Desk apps screen (mirrors india_compliance) ---
-add_to_apps_screen = [{"name":"sigzenbi","logo":"/assets/sigzenbi/images/sigzenbi.svg","title":"SigzenBI","route":"/desk/sigzenbi","has_permission":"sigzenbi.check_app_permission"}]
+# The route must match the running Frappe's desk pattern (v15 "/app/...", v16 "/desk/..."): one
+# non-desk route sends every user to the /apps picker after login (frappe.apps.is_desk_apps).
+_desk = "/desk" if int(_frappe_version.split(".")[0]) >= 16 else "/app"
+add_to_apps_screen = [{"name":"sigzenbi","logo":"/assets/sigzenbi/images/sigzenbi.svg","title":"SigzenBI","route":f"{_desk}/sigzenbi","has_permission":"sigzenbi.check_app_permission"}]
