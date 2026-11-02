@@ -52,6 +52,9 @@ _SENSITIVE_TABLES = (
 	"tabEmail Account",
 	"tabError Log",
 	"tabAccess Log",
+	# SigzenBI's own credential table (audit 2026-10-30 S1): api_key / central_api_key are plain
+	# Data. Founder decision 2026-10-31: ONLY this one is added (mirrors Central).
+	"tabSigzenBI Client Credential",
 )
 _SENSITIVE_LOWER = frozenset(t.lower() for t in _SENSITIVE_TABLES)
 
@@ -83,11 +86,25 @@ def _sensitive_table_used(sql):
 # through it, and it exposes schema shape only, no row data or credentials.
 _ADMIN_SCHEMA_RE = re.compile(r"\b(mysql|performance_schema|sys)\s*\.", re.IGNORECASE)
 
-# Per-query timeout (seconds) so a holder of a valid gateway secret can't tie up the
+# Per-query time limit (seconds) so a holder of a valid gateway secret can't tie up the
 # database with SLEEP()/BENCHMARK()/expensive scans — a statement-type blocklist can't
 # enumerate every CPU/lock-exhausting function name, so this is enforced at the
 # connection/session level instead.
-QUERY_TIMEOUT_SECONDS = 25
+#
+# MariaDB's MAX_STATEMENT_TIME is in SECONDS. This used to be sent as seconds*1000, so the
+# intended 25 s was really ~7 hours (audit 2026-10-30, S2), and charts that legitimately take
+# 40-100 s on a big ERPNext only worked because of that bug. The limit is now just under how long
+# Central itself waits for an answer (`sigzen_gateway_query_timeout_s`, 280 s in production as of
+# 2026-11-02): past that nobody receives the result, so the database should stop working on it.
+# site_config `sigzen_query_timeout_s` overrides it.
+DEFAULT_QUERY_TIMEOUT_SECONDS = 270
+
+
+def _query_timeout_seconds():
+	try:
+		return max(1, int(frappe.conf.get("sigzen_query_timeout_s") or DEFAULT_QUERY_TIMEOUT_SECONDS))
+	except (TypeError, ValueError):
+		return DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
 
@@ -278,7 +295,7 @@ def _execute_via_frappe(sql, query_params):
 		frappe.db.sql("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
 		# Cap execution time so a holder of a valid gateway secret can't hold the
 		# database with SLEEP()/BENCHMARK()/an expensive scan — MariaDB-native.
-		frappe.db.sql(f"SET SESSION MAX_STATEMENT_TIME={QUERY_TIMEOUT_SECONDS * 1000}")
+		frappe.db.sql(f"SET SESSION MAX_STATEMENT_TIME={_query_timeout_seconds()}")
 		if query_params:
 			rows = frappe.db.sql(sql, query_params, as_dict=False)
 		else:
@@ -313,7 +330,7 @@ def _execute_via_pymysql(sql, query_params, config):
 			# Enable ANSI_QUOTES to support SQL compiled with ANSI double-quoted identifiers
 			cursor.execute("SET @@session.sql_mode = CONCAT_WS(',', @@session.sql_mode, 'ANSI_QUOTES')")
 			# Cap execution time — see the matching comment in _execute_via_frappe.
-			cursor.execute(f"SET SESSION MAX_STATEMENT_TIME={QUERY_TIMEOUT_SECONDS * 1000}")
+			cursor.execute(f"SET SESSION MAX_STATEMENT_TIME={_query_timeout_seconds()}")
 			cursor.execute(sql, query_params or None)
 			rows = cursor.fetchall()
 			_desc = cursor.description or []
