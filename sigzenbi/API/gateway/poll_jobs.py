@@ -17,6 +17,39 @@ ACTIVE_NAMES_CACHE_TTL = 120
 # idle cycle, never after a job (founder decision §19, 2026-10-27).
 IDLE_SLEEP_S = 2
 
+# How many gateway queries this tenant runs AT ONCE (site_config `sigzen_gateway_workers`).
+# A dashboard sends one query per chart; run one at a time, the last chart waited for every
+# chart before it (measured 2026-11-02 on live: a 9-chart dashboard 30 s, ~8 s at 4). 4 because
+# the browser itself sends at most 6 chart requests at once over HTTP/1.1, and it keeps the load
+# on the customer's own ERPNext database modest. Raise it for a big database, lower it for a small.
+DEFAULT_GATEWAY_WORKERS = 4
+# How long the listener waits for a free worker before refreshing its heartbeat (the heartbeat
+# TTL is 90 s, and a worker can be busy for minutes).
+SLOT_WAIT_S = 30
+
+
+def _gateway_workers():
+    try:
+        return max(1, int(frappe.conf.get("sigzen_gateway_workers") or DEFAULT_GATEWAY_WORKERS))
+    except (TypeError, ValueError):
+        return DEFAULT_GATEWAY_WORKERS
+
+
+def _init_worker_thread(site, sites_path):
+    """Each worker thread has its own Frappe context and database connection: frappe.local is
+    per-thread, and two queries must never share one MariaDB connection."""
+    frappe.init(site=site, sites_path=sites_path)
+    frappe.connect()
+
+
+def _run_job(slots, central_url, client_name, secret, job):
+    try:
+        _execute_and_submit(central_url, client_name, secret, job)
+    except Exception:
+        frappe.log_error(title="SigzenBI Gateway Worker Error", message=frappe.get_traceback())
+    finally:
+        slots.release()
+
 
 def _central_url():
     url = frappe.db.get_single_value("SigzenBI Subscription Settings", "sigzenbi_erp_link") or ""
@@ -160,12 +193,51 @@ def poll_and_execute_jobs(client_name=None):
         )
         return
 
+    import threading
     import time
+    from concurrent.futures import ThreadPoolExecutor
+
     heartbeat_key = f"{POLL_HEARTBEAT_KEY}:{client_name}"
 
-    while True:
-        # 1. Update heartbeat
+    # ONE LISTENER, N WORKERS (2026-11-02). The listener below is still the only thing holding a
+    # long-poll on Central -- one Central gateway slot per tenant, as before, so Central's
+    # capacity does not shrink as tenants grow. It only asks for the next query once a worker is
+    # free; while all N are busy the queries wait in Central's queue, so the customer's database
+    # never runs more than N of ours at once.
+    # CLEAN SHUTDOWN on SIGTERM (a deploy's pkill). Dying mid-request lost queries twice over:
+    # the queries our workers were running, and the next query to arrive in the ~25 s that
+    # Central's long-poll for this dead process stays open (Central hands it to nobody).
+    # So: finish the long-poll in flight, run whatever it returns, let workers post their
+    # results, then exit. SIGKILL still loses them -- never use -9 for a deploy.
+    import signal
+
+    stopping = threading.Event()
+    signal.signal(signal.SIGTERM, lambda signum, frame: stopping.set())
+
+    workers = _gateway_workers()
+    slots = threading.BoundedSemaphore(workers)
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"sigzen-q-{client_name}",
+                              initializer=_init_worker_thread,
+                              initargs=(frappe.local.site, frappe.local.sites_path))
+    try:
+        _listen(client_name, heartbeat_key, slots, pool, stopping)
+    finally:
+        # Let running queries finish and post their results before the process exits.
+        pool.shutdown(wait=True)
+        if stopping.is_set():
+            # So the watchdog starts the replacement at its next tick, not 90 s later.
+            frappe.cache().delete_value(heartbeat_key)
+
+
+def _listen(client_name, heartbeat_key, slots, pool, stopping):
+    import time
+
+    while not stopping.is_set():
+        # 1. Update heartbeat, then wait for a free worker (refreshing the heartbeat meanwhile)
         frappe.cache().set_value(heartbeat_key, 1, expires_in_sec=90)
+        while not slots.acquire(timeout=SLOT_WAIT_S):
+            frappe.cache().set_value(heartbeat_key, 1, expires_in_sec=90)
+        handed_off = False
 
         # 2. Verify client name is still valid
         primary = _client_name()
@@ -188,6 +260,7 @@ def poll_and_execute_jobs(client_name=None):
                     
         if client_name not in valid_names:
             # Terminate loop for old/inactive client name
+            slots.release()
             break
 
         # Skip polling entirely while this name is in backoff (confirmed no active
@@ -200,12 +273,14 @@ def poll_and_execute_jobs(client_name=None):
             # already skips respawning a backed-off name (see below), so this doesn't
             # cause a hot respawn loop; it just stops holding a process open for nothing.
             frappe.cache().delete_value(heartbeat_key)
+            slots.release()
             break
 
         central_url = _central_url()
         secret = _secret(client_name)
 
         if not central_url or not client_name or not secret:
+            slots.release()
             time.sleep(10)
             continue
 
@@ -236,11 +311,13 @@ def poll_and_execute_jobs(client_name=None):
                 # skip respawning this name until it expires (or a fresh registration
                 # clears it — see databasereg.py::get_database_credentials).
                 frappe.cache().delete_value(heartbeat_key)
-                break
+                break  # the finally below gives the slot back
 
             job = data.get("job")
             if job:
-                _execute_and_submit(central_url, client_name, secret, job)
+                # The worker releases the slot when its result is posted.
+                pool.submit(_run_job, slots, central_url, client_name, secret, job)
+                handed_off = True
             else:
                 # Brief pause after an IDLE cycle (a normal "no job" after the server's 25s
                 # wait) so this loop periodically releases its Central web worker instead of
@@ -249,11 +326,10 @@ def poll_and_execute_jobs(client_name=None):
                 # can starve unrelated quick requests (login, client_plans, etc.) even when
                 # nothing is broken.
                 #
-                # NOT after a job: a dashboard queues one query per chart and this loop runs
-                # them one at a time, so a pause there was paid by EVERY chart in turn
-                # (measured 2026-10-12: 2.1s per query whatever the SQL, the 8th of 8 queued
-                # queries answered after 17s). Fall through to the connection refresh below
-                # and ask for the next one straight away.
+                # NOT after a job: a dashboard queues one query per chart, so a pause there
+                # was paid by every chart in turn (measured 2026-10-12: 2.1s per query, the 8th
+                # of 8 queued answered after 17s). After a hand-off the listener asks for the
+                # next query straight away, as soon as a worker is free.
                 time.sleep(IDLE_SLEEP_S)
 
         except requests.exceptions.RequestException:
@@ -262,6 +338,9 @@ def poll_and_execute_jobs(client_name=None):
         except Exception:
             frappe.log_error(title="SigzenBI Poll Loop Error", message=frappe.get_traceback())
             time.sleep(5)
+        finally:
+            if not handed_off:
+                slots.release()
 
         # Refresh database connection
         frappe.db.close()
