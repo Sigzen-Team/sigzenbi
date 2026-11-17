@@ -122,3 +122,61 @@ class TestLiteralsAreInert(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDoubleDashNeedsWhitespace(unittest.TestCase):
+    """MariaDB starts a `--` comment only when whitespace or a control character follows it;
+    `1--1` is "1 minus minus 1". Reading it as a comment hid the rest of the line from the guard,
+    so `SELECT sid, 1--1 FROM tabSessions` passed and returned live session ids (2026-11-17)."""
+
+    def test_double_dash_without_space_does_not_hide_a_sensitive_table(self):
+        for sql in (
+            "SELECT `sid`, 1--1 FROM `tabSessions`",
+            "SELECT `name`, 1--1 FROM `__Auth`",
+            "SELECT 1--1 FROM `tabUser`",
+            "SELECT 1 FROM `tabCustomer` WHERE 1--1 UNION SELECT password FROM `__Auth`",
+        ):
+            with self.subTest(sql):
+                allowed, _ = ok(sql)
+                self.assertFalse(allowed)
+
+    def test_real_double_dash_comments_still_ignored(self):
+        for sql in (
+            "SELECT 1 FROM `tabCustomer` -- tabUser is only mentioned in a comment",
+            "SELECT 1 FROM `tabCustomer` --\ttabUser",
+            "SELECT 1 FROM `tabCustomer` --\nWHERE 1=1",
+            "SELECT 1 FROM `tabCustomer` --",
+            "SELECT 1 - -1 FROM `tabCustomer`",
+            "SELECT 1--1 FROM `tabCustomer`",
+        ):
+            with self.subTest(sql):
+                allowed, reason = ok(sql)
+                self.assertTrue(allowed, reason)
+
+
+class TestQuotedIdentifiersAreTracked(unittest.TestCase):
+    """A quote inside a `backtick` or "double-quoted" identifier is part of the name, not the start of
+    a string. Treating it as a string blanked real SQL between two such names, so
+    SELECT 1 AS `a'`, (SELECT COUNT(*) FROM `__Auth`) AS `'b` passed (security review 2026-11-17)."""
+
+    def test_quote_inside_an_identifier_does_not_hide_sql(self):
+        for sql in (
+            "SELECT 1 AS `a'`, (SELECT COUNT(*) FROM `__Auth`) AS `'b`",
+            "SELECT 1 AS `a'`, (SELECT COUNT(*) FROM `tabSessions`) AS `'b`",
+            'SELECT 1 AS "a\'", (SELECT COUNT(*) FROM "tabSessions") AS "\'b"',
+            "SELECT 1 AS `information_schema`, `a'`, (SELECT COUNT(*) FROM `tabSessions`) AS `'b` FROM (SELECT 1 AS `a'`) t",
+            "SELECT 1 AS `x'`, LOAD_FILE('/etc/passwd') AS `'y` UNION SELECT 1, 2 INTO OUTFILE '/tmp/x'",
+        ):
+            with self.subTest(sql):
+                allowed, _ = ok(sql)
+                self.assertFalse(allowed)
+
+    def test_ordinary_quoted_identifiers_still_work(self):
+        for sql in (
+            "SELECT `name`, `customer_name` FROM `tabCustomer` WHERE `customer_name` = 'O''Brien'",
+            'SELECT "name" FROM "tabCustomer" WHERE "territory" = \'India\'',
+            "SELECT `it``s` FROM `tabCustomer`",
+        ):
+            with self.subTest(sql):
+                allowed, reason = ok(sql)
+                self.assertTrue(allowed, reason)
