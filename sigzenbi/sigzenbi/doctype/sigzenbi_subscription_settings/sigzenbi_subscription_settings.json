@@ -19,7 +19,9 @@
   "sigzenbi_link_section",
   "sigzenbi_link",
   "column_break_kcem",
-  "sigzenbi_erp_link"
+  "sigzenbi_erp_link",
+  "gateway_section",
+  "use_shared_gateway_library"
  ],
  "fields": [
   {
@@ -108,12 +110,24 @@
    "fieldtype": "Data",
    "label": "SigzenBI ERP Link",
    "read_only": 1
+  },
+  {
+   "fieldname": "gateway_section",
+   "fieldtype": "Section Break",
+   "label": "Gateway"
+  },
+  {
+   "default": "0",
+   "description": "OFF = built-in gateway code (unchanged). ON = SQL check and member row security from the shared sigzen_gateway library. Read on every query: turning it off is the rollback.",
+   "fieldname": "use_shared_gateway_library",
+   "fieldtype": "Check",
+   "label": "Use shared gateway library"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-05 15:15:11.391131",
+ "modified": "2026-11-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "SigzenBI",
  "name": "SigzenBI Subscription Settings",
