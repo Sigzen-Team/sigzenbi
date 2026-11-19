@@ -1,4 +1,4 @@
-"""Switch: "Use shared gateway library" (SigzenAI Sprint 02 task 2.2; founder 2026-11-02).
+"""Switch: SigzenBI Subscription Settings "Use shared gateway library" (SigzenAI Sprint 02 task 2.2; founder 2026-11-02).
 
 OFF (default): the built-in gateway code below runs exactly as before.
 ON: the SQL check and the member row-security composition come from the shared `sigzen_gateway`
@@ -19,9 +19,9 @@ _missing_logged = False
 
 def enabled():
 	try:
-		return bool(frappe.db.get_value("SigzenBI Client Credential", {"use_shared_gateway_library": 1}, "name"))
+		return bool(frappe.db.get_single_value("SigzenBI Subscription Settings", "use_shared_gateway_library"))
 	except Exception:
-		return False  # column not migrated yet -> OFF
+		return False  # not migrated yet -> OFF
 
 
 def _module(name):
