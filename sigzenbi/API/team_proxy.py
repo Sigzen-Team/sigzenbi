@@ -274,3 +274,18 @@ def download_credit_pack_invoice(purchase_name=None):
     """
     return _forward("sigzenbi_central.API.billing.invoicing.download_credit_pack_invoice",
                     {"purchase_name": purchase_name})
+
+
+@frappe.whitelist(allow_guest=True)
+def list_org_invitations():
+    # Portal banner "<Org> added you" (2026-11-18). Central answers for the sid-session user
+    # only; there is no user argument to forward.
+    return _forward("sigzenbi_central.API.team.org_invitation.list_my_invitations", {})
+
+
+@frappe.whitelist(allow_guest=True)
+def respond_org_invitation(invitation, response):
+    # Accept/decline from the invitee's OWN session. Central refuses unless the invitation is
+    # addressed to the sid-session user, so nobody here can answer for anyone else.
+    return _forward("sigzenbi_central.API.team.org_invitation.respond_org_invitation",
+                    {"invitation": invitation, "response": response})
