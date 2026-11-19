@@ -47,6 +47,17 @@ def after_install():
     """`after_install` / `after_migrate` hook entrypoint."""
     create_default_permissions_and_roles()
     ensure_readonly_db_user()
+    ensure_box_key()
+
+
+def ensure_box_key():
+    """Central SRS F-1: this box's key pair (0600 file outside the DB). Idempotent; never fails
+    an install or migrate."""
+    try:
+        from sigzenbi.API.gateway import box_key
+        box_key.ensure_box_key()
+    except Exception:
+        frappe.log_error(title="SigzenBI box key", message=frappe.get_traceback())
 
 
 def create_default_permissions_and_roles():
