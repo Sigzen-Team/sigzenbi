@@ -349,6 +349,23 @@ def call_central_api(endpoint_url, payload=None, method="POST", headers=None, co
                     else:
                         response = requests.get(endpoint_url, params=_get_params(payload), headers=headers, cookies=cookies, timeout=timeout)
 
+            # SRS B-9: still 401 -- the key may have been regenerated on Central (Desk
+            # "Generate Keys") and the wake-up missed. Ask Central for the current pair once,
+            # over the gateway secret, and retry with it.
+            if response.status_code == 401:
+                from sigzenbi.API.gateway.poll_jobs import refresh_credentials_from_central
+                if refresh_credentials_from_central(resolved_client_name):
+                    fresh = client_credentials.get_credentials(resolved_client_name)
+                    if fresh and (fresh["key"] != api_key or fresh["secret"] != api_secret):
+                        api_key, api_secret = fresh["key"], fresh["secret"]
+                        payload["api_key"] = api_key
+                        payload["api_secret"] = api_secret
+                        headers["Authorization"] = f"token {api_key}:{api_secret}"
+                        if method == "POST":
+                            response = requests.post(endpoint_url, json=payload, headers=headers, cookies=cookies, timeout=timeout)
+                        else:
+                            response = requests.get(endpoint_url, params=_get_params(payload), headers=headers, cookies=cookies, timeout=timeout)
+
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.HTTPError:

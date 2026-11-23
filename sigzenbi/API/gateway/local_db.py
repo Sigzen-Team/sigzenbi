@@ -125,6 +125,21 @@ def _scannable_sql(sql):
 	i, n = 0, len(sql)
 	while i < n:
 		c = sql[i]
+		if c in "`\"":
+			# A quoted IDENTIFIER (backticks; double quotes under ANSI_QUOTES) is kept as written and
+			# skipped whole: a ' inside it is part of the name, not the start of a string. Treating it
+			# as one blanked real SQL between two such names (security review 2026-11-17).
+			j = i + 1
+			while j < n:
+				if sql[j] == c:
+					if j + 1 < n and sql[j + 1] == c:
+						j += 2
+						continue
+					break
+				j += 1
+			out.append(sql[i : j + 1])
+			i = j + 1
+			continue
 		if c == "'":
 			i += 1
 			while i < n:
@@ -140,7 +155,9 @@ def _scannable_sql(sql):
 				i += 1
 			out.append("'?'")
 			continue
-		if sql[i:i + 2] == "--" or c == "#":
+		# MariaDB: `--` starts a comment only when whitespace/control follows (or at the end);
+		# `1--1` is "1 minus minus 1" and the rest of the line still runs.
+		if (sql[i:i + 2] == "--" and (i + 2 >= n or sql[i + 2] <= " ")) or c == "#":
 			j = sql.find("\n", i)
 			i = n if j == -1 else j
 			continue
@@ -282,6 +299,14 @@ def execute_read_query(sql, params=None):
 		return False, [], [], str(exc), []
 
 	config = get_db_config()
+	from sigzenbi.API.gateway import shared_library
+
+	if shared_library.enabled():
+		shared_sql, shared_err, _used = shared_library.check_sql(sql, query_params, config.get("database"))
+		if shared_err:
+			return False, [], [], shared_err, []
+		sql = shared_sql
+
 	if config.get("use_frappe_db"):
 		return _execute_via_frappe(sql, query_params)
 

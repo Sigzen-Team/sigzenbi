@@ -9,6 +9,9 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
+    # The box key pair (Ed25519 signatures, X25519 sealing; Central SRS Part F). Already
+    # installed with Frappe; declared because this app imports it directly.
+    "cryptography",
 ]
 
 [build-system]
