@@ -42,11 +42,29 @@ def _init_worker_thread(site, sites_path):
     frappe.connect()
 
 
-def _run_job(slots, central_url, client_name, secret, job):
+def _run_job(slots, central_url, client_name, secret, job, stopping=None):
     try:
+        # A FRESH DB connection per job, as the listener takes one per cycle. The worker's own
+        # connection sits idle between jobs and MariaDB drops it after wait_timeout (8 h); a
+        # dropped MySQLdb connection then raises 2006 "Server has gone away" on EVERY later use,
+        # it never reconnects. Live 2026-11-18: Sigzen Demo idle overnight, the submit-time
+        # `_secret()` (and the log_error meant to report it) raised on every job, the result was
+        # never posted, and every chart timed out while the loop kept polling 200.
+        frappe.db.close()
+        frappe.db.connect()
         _execute_and_submit(central_url, client_name, secret, job)
+        frappe.db.commit()   # this thread writes only Error Log rows; without it they are lost
     except Exception:
-        frappe.log_error(title="SigzenBI Gateway Worker Error", message=frappe.get_traceback())
+        # This thread cannot even report the job (no DB?). A worker that takes jobs and posts
+        # nothing looks healthy to the watchdog (the listener's heartbeat is fine), so stop the
+        # loop: it exits cleanly and the watchdog starts a fresh process within a minute.
+        try:
+            frappe.log_error(title="SigzenBI Gateway Worker Error", message=frappe.get_traceback())
+            frappe.db.commit()
+        except Exception:
+            frappe.logger("sigzen_gateway").exception(f"'{client_name}': gateway worker failed")
+        if stopping is not None:
+            stopping.set()
     finally:
         slots.release()
 
@@ -77,6 +95,58 @@ def _secret(client_name=None):
         return client_credentials.get_gateway_secret(client_name)
     return frappe.conf.get("sigzen_gateway_shared_secret")
 
+
+
+# SRS B-9: Central's long-poll answers {"control": "credentials_changed"} the moment someone
+# changes this tenant's API key outside rotation (Desk "Generate Keys"). Old clients ignore it.
+CREDENTIALS_CHANGED = "credentials_changed"
+
+
+def refresh_credentials_from_central(client_name):
+    """Fetch this identity's CURRENT Central api pair and store it where rotation stores it.
+
+    Authenticated with the per-tenant GATEWAY secret, never the api key (a key is regenerated
+    because it leaked; the old one must not buy the new one). Returns True when a pair was
+    saved. Never logs either secret.
+    """
+    from sigzenbi import credentials as client_credentials
+    from sigzenbi.API.gateway import box_key
+
+    central_url = _central_url()
+    secret = _secret(client_name)
+    if not central_url or not client_name or not secret:
+        return False
+    try:
+        # Signed with this box's key (Part F). Central ignores the signature until the box is
+        # enrolled, and requires it after.
+        signed = box_key.signed_headers(box_key.FETCH, client_name)
+        resp = requests.post(
+            f"{central_url}/api/method/sigzenbi_central.API.gateway.credentials.fetch_current_api_credentials",
+            data={"client_name": client_name},
+            headers={GATEWAY_SECRET_HEADER: secret, **signed},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            if resp.status_code in (401, 403):
+                box_key.forget_enrollment(client_name)   # e.g. a Reset Box Key: re-enroll now
+            # Not raise_for_status(): never let a URL or body near a log line.
+            frappe.log_error(title="SigzenBI credential refresh failed",
+                             message=f"client_name: {client_name}\n{box_key.refusal_reason(resp)}")
+            return False
+        data = resp.json().get("message") or {}
+        if data.get("sealed"):
+            data = box_key.unseal_json(data["sealed"], box_key.request_aad(box_key.FETCH, client_name, signed))
+        else:
+            box_key.forget_enrollment(client_name)       # Central says not enrolled: enroll now
+        if not (data.get("api_key") and data.get("api_secret")):
+            return False
+        client_credentials.save_rotated(client_name, data["api_key"], data["api_secret"])
+        frappe.logger("sigzen_gateway").info(f"'{client_name}': Central api pair refreshed.")
+        return True
+    except Exception:
+        frappe.log_error(title="SigzenBI credential refresh failed",
+                         message=f"client_name: {client_name}\n{frappe.get_traceback()}")
+        return False
 
 def _fetch_active_client_names():
     """
@@ -232,7 +302,12 @@ def poll_and_execute_jobs(client_name=None):
 def _listen(client_name, heartbeat_key, slots, pool, stopping):
     import time
 
+    from sigzenbi.API.gateway import box_key
+
     while not stopping.is_set():
+        # Part F: keep this box's key enrolled on Central. Retried until it works, re-confirmed
+        # every few minutes; never fatal (an unenrolled tenant keeps working as before).
+        box_key.ensure_enrolled(client_name)
         # 1. Update heartbeat, then wait for a free worker (refreshing the heartbeat meanwhile)
         frappe.cache().set_value(heartbeat_key, 1, expires_in_sec=90)
         while not slots.acquire(timeout=SLOT_WAIT_S):
@@ -313,10 +388,15 @@ def _listen(client_name, heartbeat_key, slots, pool, stopping):
                 frappe.cache().delete_value(heartbeat_key)
                 break  # the finally below gives the slot back
 
+            if data.get("control") == CREDENTIALS_CHANGED:
+                # Not a job and not idle: fetch the new pair, then re-poll straight away.
+                refresh_credentials_from_central(client_name)
+                continue
+
             job = data.get("job")
             if job:
                 # The worker releases the slot when its result is posted.
-                pool.submit(_run_job, slots, central_url, client_name, secret, job)
+                pool.submit(_run_job, slots, central_url, client_name, secret, job, stopping)
                 handed_off = True
             else:
                 # Brief pause after an IDLE cycle (a normal "no job" after the server's 25s
@@ -348,6 +428,8 @@ def _listen(client_name, heartbeat_key, slots, pool, stopping):
 
 
 def _execute_and_submit(central_url, client_name, secret, job):
+    # `secret` was read when the job was polled. A query can run up to the 270 s cap, and a
+    # gateway-secret rotation finishing meanwhile makes that copy dead: read it again to submit.
     job_id = job.get("job_id")
     sql = job.get("sql")
     params = job.get("params") or {}
@@ -372,13 +454,17 @@ def _execute_and_submit(central_url, client_name, secret, job):
         resp = requests.post(
             f"{central_url}/api/method/sigzenbi_central.API.gateway.submit_query_result.submit_query_result",
             json=payload,
-            headers={GATEWAY_SECRET_HEADER: secret},
+            headers={GATEWAY_SECRET_HEADER: _secret(client_name) or secret},
             timeout=15,
         )
         resp.raise_for_status()
 
-    except requests.exceptions.RequestException:
-        pass
+    except requests.exceptions.RequestException as exc:
+        # Was a bare `pass`: a result Central never got is a chart that times out. Log the
+        # outcome only (never the URL, body or headers).
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        frappe.logger("sigzen_gateway").warning(
+            f"'{client_name}': result post failed ({type(exc).__name__}, HTTP {status})")
     except Exception:
         frappe.log_error(title="SigzenBI Submit Result Error", message=frappe.get_traceback())
 

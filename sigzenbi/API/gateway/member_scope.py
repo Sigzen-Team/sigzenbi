@@ -457,7 +457,11 @@ def get_member_scope(client_name=None, member_email=None, doctypes=None, secret=
 	saved_session = {k: frappe.local.session.get(k) for k in _SESSION_KEYS}
 	try:
 		frappe.set_user(member_email)
-		scope = {dt: _scope_for(dt, member_email) for dt in requested}
+		from sigzenbi.API.gateway import shared_library
+
+		scope = shared_library.member_scope(requested, member_email)
+		if scope is None:
+			scope = {dt: _scope_for(dt, member_email) for dt in requested}
 	finally:
 		# Non-negotiable: this runs inside a live request. Leaving the session as the member
 		# would hand the rest of the request their identity. set_user(caller) re-derives the

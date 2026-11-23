@@ -28,12 +28,17 @@ def fetch_first_user(user_name, client_name, first_name, last_name, email, passw
     try:
         full_name = f"{first_name} {last_name}".strip()
 
-        # Set client name in SigzenBI Subscription Settings
-        frappe.db.sql(
-            "INSERT INTO tabSingles (doctype, field, value) VALUES (%s, 'client_name', %s) "
-            "ON DUPLICATE KEY UPDATE value=%s",
-            ["SigzenBI Subscription Settings", client_name, client_name]
-        )
+        # The singleton client_name is this site's PRIMARY identity: set it on bootstrap only.
+        # A second org registered against this same site (one bench, several client_names --
+        # registered_client_names) used to overwrite it here, which re-pointed every vouch and
+        # proxy call of the site at the new org (Central SRS A-R10 live test, 2026-11-17). Same
+        # rule as subscription_reciver.
+        if not frappe.db.get_single_value("SigzenBI Subscription Settings", "client_name"):
+            frappe.db.sql(
+                "INSERT INTO tabSingles (doctype, field, value) VALUES (%s, 'client_name', %s) "
+                "ON DUPLICATE KEY UPDATE value=%s",
+                ["SigzenBI Subscription Settings", client_name, client_name]
+            )
 
         # C3: persist this tenant's per-client_name transport secret (if Central
         # sent one) so its poll loop authenticates to the gateway per-tenant.

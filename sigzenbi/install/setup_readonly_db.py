@@ -90,7 +90,11 @@ def _ro_user_exists(user):
 
 def _show_grants(user):
     ok, out, err = _run_sql(f"SHOW GRANTS FOR '{user}'@'localhost';", batch=False)
-    return out if ok else f"(could not read grants: {err})"
+    if not ok:
+        return f"(could not read grants: {err})"
+    # SHOW GRANTS carries the password hash (IDENTIFIED BY PASSWORD '*...'); migrate output
+    # lands in logs and terminals, so print the grants without it.
+    return re.sub(r"IDENTIFIED BY PASSWORD '[^']*'", "IDENTIFIED BY PASSWORD <redacted>", out)
 
 
 def _wire_site_config(db_name, user, password):

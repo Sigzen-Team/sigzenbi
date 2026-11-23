@@ -41,6 +41,8 @@ class TestPollLoopCycle(FrappeTestCase):
             patch("time.sleep", side_effect=self.sleeps.append),
             patch.object(frappe.db, "close", lambda *a, **k: None),
             patch.object(frappe.db, "connect", lambda *a, **k: None),
+            # Part F enroll is a real POST to Central; this test is about the loop only.
+            patch("sigzenbi.API.gateway.box_key.enroll", lambda *a, **k: None),
         ):
             p.start()
             self.addCleanup(p.stop)
@@ -72,3 +74,43 @@ class TestPollLoopCycle(FrappeTestCase):
     def test_error_backoff_unchanged(self):
         self._run(requests.exceptions.RequestException("boom"), {"no_credential": True})
         self.assertEqual(self.sleeps, [1])
+
+
+class TestWorkerSurvivesDroppedConnection(FrappeTestCase):
+    """2026-11-18: a worker thread's DB connection dropped by MariaDB (wait_timeout) made every
+    later job fail before posting its result, silently. Real thread, real dropped connection."""
+
+    def test_job_posts_its_result_after_the_server_dropped_the_connection(self):
+        import threading
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        pool = ThreadPoolExecutor(1, initializer=poll_jobs._init_worker_thread,
+                                  initargs=(frappe.local.site, frappe.local.sites_path))
+        self.addCleanup(pool.shutdown)
+        pool.submit(lambda: frappe.db.sql("SET SESSION wait_timeout=1")).result()
+        time.sleep(2.5)   # MariaDB closes the worker's idle connection
+
+        posted, slots, stopping = [], threading.BoundedSemaphore(1), threading.Event()
+        slots.acquire()
+        with patch.object(poll_jobs.requests, "post",
+                          side_effect=lambda *a, **k: posted.append(k["json"]) or _resp({})):
+            pool.submit(poll_jobs._run_job, slots, "https://central.invalid", TENANT, "s",
+                        {"job_id": "j1", "sql": "SELECT 1 AS x"}, stopping).result()
+
+        self.assertEqual([p["job_id"] for p in posted], ["j1"])
+        self.assertTrue(posted[0]["success"], posted[0].get("error"))
+        self.assertFalse(stopping.is_set())
+        self.assertTrue(slots.acquire(blocking=False), "slot not released")
+
+    def test_a_worker_that_cannot_run_stops_the_loop(self):
+        import threading
+
+        slots, stopping = threading.BoundedSemaphore(1), threading.Event()
+        slots.acquire()
+        with patch.object(frappe.db, "connect", side_effect=RuntimeError("db down")), \
+                patch.object(frappe, "log_error", side_effect=RuntimeError("db down")):
+            poll_jobs._run_job(slots, "https://central.invalid", TENANT, "s",
+                               {"job_id": "j2", "sql": "SELECT 1"}, stopping)
+        self.assertTrue(stopping.is_set())
+        self.assertTrue(slots.acquire(blocking=False), "slot not released")
