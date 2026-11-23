@@ -79,7 +79,10 @@ def _forward(method_path, payload):
         json=payload,
         cookies={"sid": central_sid},
         headers={"X-Frappe-CSRF-Token": csrf} if csrf else {},
-        timeout=15,
+        # Central saves first, then updates analytics accounts (seat change, removal), which
+        # can take longer than 15s; a shorter wait reported an error for a change that was saved.
+        # Kept under nginx's default 60s proxy timeout so the page still gets a real answer.
+        timeout=45,
     )
     if resp.ok:
         try:
